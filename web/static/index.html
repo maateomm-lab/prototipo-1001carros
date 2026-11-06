@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cotizador interno · 1001Carros</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilos.css">
+  <script src="chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ===================== INGRESO ===================== -->
+<section class="login" id="login" hidden>
+  <div class="login-bg"></div>
+  <form class="login-card" id="f-login" autocomplete="on">
+    <div class="logo"><span class="logo-1001">1001</span>Carros<span class="logo-ia">IA</span></div>
+    <h1 id="login-tit">Cotizador interno</h1>
+    <p class="login-sub" id="login-sub">Prototipo académico (USFQ · Grupo 2). Acceso de demostración: usuario <b>grupo</b>, clave <b>1001carros</b>.</p>
+    <div id="setup-campos" hidden>
+      <label class="lbl">Tu nombre completo</label>
+      <input type="text" name="nombre" placeholder="Ej. María Pérez">
+    </div>
+    <label class="lbl">Usuario</label>
+    <input type="text" name="usuario" autocomplete="username" required placeholder="ej. mperez" value="grupo">
+    <label class="lbl">Contraseña</label>
+    <input type="password" name="clave" autocomplete="current-password" required minlength="6" value="1001carros">
+    <p class="form-err" id="login-err" hidden></p>
+    <button class="btn btn-pri" type="submit" id="login-btn">Ingresar</button>
+    <p class="login-pie">Prototipo académico de tesis · no es un sitio oficial de 1001Carros · datos de inventario de demostración</p>
+  </form>
+</section>
+
+<!-- ===================== APLICACIÓN ===================== -->
+<div class="app" id="app" hidden>
+  <aside class="side">
+    <div class="logo"><span class="logo-1001">1001</span>Carros<span class="logo-ia">IA</span></div>
+    <p class="side-sub">Cotizador interno</p>
+    <nav class="side-nav">
+      <a href="#/nueva" data-v="nueva"><i>＋</i><span>Nueva cotización</span></a>
+      <a href="#/historial" data-v="historial"><i>☰</i><span>Historial</span></a>
+      <a href="#/resumen" data-v="resumen"><i>▤</i><span>Resumen</span></a>
+      <a href="#/inventario" data-v="inventario"><i>🚗</i><span>Inventario</span></a>
+      <a href="#/tablero" data-v="tablero"><i>🎯</i><span>Tablero de objetivos</span></a>
+      <a href="#/parametros" data-v="parametros" class="solo-admin"><i>⚙</i><span>Parámetros</span></a>
+      <a href="#/usuarios" data-v="usuarios" class="solo-admin"><i>👥</i><span>Usuarios</span></a>
+    </nav>
+    <div class="side-user">
+      <div class="avatar" id="yo-ini">–</div>
+      <div class="side-user-txt"><b id="yo-nombre">–</b><small id="yo-rol">–</small></div>
+      <button class="icon-btn" id="btn-clave" title="Cambiar contraseña">🔑</button>
+      <button class="icon-btn" id="btn-salir" title="Salir">⏻</button>
+    </div>
+  </aside>
+
+  <main class="contenido">
+    <!-- ------------------------------------------- NUEVA COTIZACIÓN -->
+    <section class="vista" data-vista="nueva">
+      <header class="vista-head">
+        <div><h2>Nueva cotización</h2><p class="hint">El valor se recalcula en vivo mientras llenas los datos.</p></div>
+        <button class="btn btn-ghost" id="btn-limpiar">Empezar otra</button>
+      </header>
+
+      <div class="cot-grid">
+        <section class="card form-card">
+          <h3 class="card-tit">Vehículo</h3>
+          <label class="lbl">Marca</label>
+          <div class="combo" id="cb-marca">
+            <input type="text" placeholder="Busca: Toyota, Chevrolet, Kia…" autocomplete="off">
+            <ul class="combo-list"></ul>
+          </div>
+          <div class="chips chips-pop" id="pop-marcas"></div>
+
+          <label class="lbl">Modelo</label>
+          <div class="combo" id="cb-modelo">
+            <input type="text" placeholder="Elige primero la marca" autocomplete="off" disabled>
+            <ul class="combo-list"></ul>
+          </div>
+
+          <label class="lbl">Versión <small>(opcional)</small></label>
+          <select id="sel-version" disabled><option value="">No sé / estándar</option></select>
+
+          <div class="big-field">
+            <div class="big-head"><label class="lbl">Año</label><output id="out-anio">2018</output></div>
+            <input type="range" id="in-anio" min="1995" max="2027" value="2018">
+          </div>
+          <div class="big-field">
+            <div class="big-head"><label class="lbl">Kilometraje</label>
+              <div class="km-box"><input type="number" id="in-km-num" min="0" max="600000" step="1000" value="80000"><span>km</span></div>
+            </div>
+            <input type="range" id="in-km" min="0" max="400000" step="1000" value="80000">
+            <p class="hint" id="km-hint"></p>
+          </div>
+
+          <details class="more" open>
+            <summary>Características</summary>
+            <label class="lbl">Transmisión</label><div class="chips" data-campo="transmision"></div>
+            <label class="lbl">Combustible</label><div class="chips" data-campo="combustible"></div>
+            <label class="lbl">Tracción</label><div class="chips" data-campo="traccion"></div>
+            <label class="lbl">Lo vende</label><div class="chips" data-campo="vendedor_tipo"></div>
+            <div class="grid2">
+              <div><label class="lbl">Ciudad</label><select data-sel="ciudad"></select></div>
+              <div><label class="lbl">Provincia placa</label><select data-sel="provincia_placa"></select></div>
+              <div><label class="lbl">Carrocería</label><select data-sel="subtipo"></select></div>
+              <div><label class="lbl">Cilindraje (cc)</label><input type="number" id="in-cil" min="0" max="8000" step="100" placeholder="No sé"></div>
+            </div>
+          </details>
+          <details class="more">
+            <summary>Equipamiento</summary>
+            <label class="lbl">Tapizado</label><div class="chips" data-campo="tapizado"></div>
+            <label class="lbl">Vidrios</label><div class="chips" data-campo="vidrios"></div>
+            <label class="lbl">Dirección</label><div class="chips" data-campo="direccion"></div>
+            <label class="lbl">Climatización</label><select data-sel="climatizacion"></select>
+          </details>
+          <details class="more">
+            <summary>Precio de nuevo</summary>
+            <p class="hint">Si lo conoces, la precisión mejora (error típico <b id="pn-err1">–</b> vs <b id="pn-err2">–</b> sin él).</p>
+            <div class="km-box wide"><span>$</span><input type="number" id="in-pn" min="0" max="400000" step="500" placeholder="Automático"></div>
+          </details>
+        </section>
+
+        <section class="res">
+          <div class="card res-empty" id="res-empty">
+            <div class="empty-ico">🚗</div>
+            <h3>Elige marca y modelo</h3>
+            <p>El valor aparece aquí al instante.</p>
+          </div>
+
+          <div id="res-full" hidden>
+            <div class="card res-main">
+              <div class="res-head">
+                <div>
+                  <p class="res-tit" id="res-titulo">–</p>
+                  <p class="res-sub" id="res-sub">–</p>
+                </div>
+                <div class="conf" id="conf"><div class="conf-bars"><i></i><i></i><i></i></div><span id="conf-txt">–</span></div>
+              </div>
+              <div class="valor-wrap">
+                <p class="k">Valor de mercado estimado</p>
+                <p class="valor" id="v-mercado">$0</p>
+              </div>
+              <div class="rango">
+                <div class="rango-bar"><div class="r80"></div><div class="r50" id="r50"></div><div class="mark" id="mark"></div></div>
+                <div class="rango-lbls"><span id="v-bajo">–</span><span class="mid">Rango probable <b id="v-r50">–</b></span><span id="v-alto">–</span></div>
+              </div>
+              <div class="alert" id="alerta" hidden></div>
+              <div class="spin" id="spin"></div>
+            </div>
+
+            <div class="card oferta">
+              <div class="oferta-top">
+                <div>
+                  <p class="k light">Oferta de compra sugerida</p>
+                  <p class="valor sm" id="v-toma">$0</p>
+                  <p class="res-sub light">Probable: <span id="v-toma-r">–</span></p>
+                </div>
+                <div class="margen">
+                  <label>Margen <b id="out-margen">11%</b></label>
+                  <input type="range" id="in-margen" min="0" max="25" step="0.5" value="11">
+                </div>
+              </div>
+            </div>
+
+            <form class="card cliente" id="f-cliente">
+              <div class="card-tit-row">
+                <h3 class="card-tit">Cliente y cierre</h3>
+                <span class="pill" id="guardada-pill" hidden></span>
+              </div>
+              <div class="grid3">
+                <div class="span2"><label class="lbl">Nombre del cliente</label><input type="text" name="cliente" placeholder="Nombre y apellido"></div>
+                <div><label class="lbl">Teléfono</label><input type="text" name="telefono" placeholder="09…"></div>
+                <div class="span2"><label class="lbl">Correo</label><input type="text" name="correo" placeholder="cliente@correo.com"></div>
+                <div><label class="lbl">Placa</label><input type="text" name="placa" placeholder="PBA-1234"></div>
+                <div><label class="lbl">Color</label><input type="text" name="color"></div>
+                <div><label class="lbl">Oferta final</label><div class="km-box wide"><span>$</span><input type="number" name="oferta_final" step="100" min="0"></div></div>
+                <div><label class="lbl">Estado</label><select name="estado"></select></div>
+                <div class="span3"><label class="lbl">Notas</label><textarea name="notas" rows="2" placeholder="Estado del carro, detalles de la negociación…"></textarea></div>
+              </div>
+              <div class="row-btns">
+                <button class="btn btn-pri" type="submit" id="btn-guardar">Guardar cotización</button>
+                <button class="btn btn-ghost" type="button" id="btn-imprimir">🖨 Imprimir / PDF</button>
+              </div>
+            </form>
+
+            <div class="card tabs-card">
+              <div class="tabs" role="tablist">
+                <button class="tab on" data-t="comp">Mercado</button>
+                <button class="tab" data-t="km">Depreciación por km</button>
+                <button class="tab" data-t="anios">Proyección</button>
+                <button class="tab" data-t="efectos">¿Por qué este precio?</button>
+              </div>
+              <div class="tab-p" data-tp="comp">
+                <p class="hint" id="comp-hint">–</p>
+                <div class="chart-box"><canvas id="ch-comp"></canvas></div>
+                <div class="comp-list" id="comp-list"></div>
+              </div>
+              <div class="tab-p" data-tp="km" hidden>
+                <p class="hint">Mismo carro, solo cambia el kilometraje. <b>Toca la curva</b> para probar otro kilometraje.</p>
+                <div class="chart-box"><canvas id="ch-km"></canvas></div>
+                <div class="km-cards" id="km-cards"></div>
+              </div>
+              <div class="tab-p" data-tp="anios" hidden>
+                <p class="hint" id="anios-hint">–</p>
+                <div class="chart-box"><canvas id="ch-anios"></canvas></div>
+                <div class="km-cards" id="anios-cards"></div>
+              </div>
+              <div class="tab-p" data-tp="efectos" hidden>
+                <p class="hint">Partiendo del valor promedio del mercado (<b id="v-base">–</b>), así suma o resta cada factor:</p>
+                <div class="efectos" id="efectos"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- HISTORIAL -->
+    <section class="vista" data-vista="historial" hidden>
+      <header class="vista-head">
+        <div><h2>Historial</h2><p class="hint" id="hist-sub">–</p></div>
+        <a class="btn btn-pri auto" href="#/nueva">＋ Nueva cotización</a>
+      </header>
+      <div class="card">
+        <div class="toolbar">
+          <input type="search" id="h-texto" placeholder="Buscar cliente, placa, vehículo o N°…">
+          <select id="h-estado"><option value="">Todos los estados</option></select>
+          <select id="h-asesor" class="solo-admin"><option value="">Todos los asesores</option></select>
+        </div>
+        <div class="tabla-wrap">
+          <table class="tabla" id="h-tabla">
+            <thead><tr><th>N°</th><th>Fecha</th><th>Cliente</th><th>Vehículo</th><th class="num">Km</th><th class="num">Mercado</th><th class="num">Oferta final</th><th>Estado</th><th class="solo-admin">Asesor</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="vacio-tabla" id="h-vacio" hidden>No hay cotizaciones todavía.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- RESUMEN -->
+    <section class="vista" data-vista="resumen" hidden>
+      <header class="vista-head">
+        <div><h2>Resumen</h2><p class="hint" id="res-alcance">–</p></div>
+        <select id="r-dias" class="auto"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Último año</option></select>
+      </header>
+      <div class="kpis" id="kpis"></div>
+      <div class="res-grid">
+        <div class="card"><h3 class="card-tit">Cotizaciones por día</h3><div class="chart-box sm"><canvas id="ch-dia"></canvas></div></div>
+        <div class="card"><h3 class="card-tit">Por estado</h3><div id="r-estados" class="barras"></div></div>
+        <div class="card"><h3 class="card-tit">Por asesor</h3>
+          <table class="tabla compacta"><thead><tr><th>Asesor</th><th class="num">Cotizaciones</th><th class="num">Compradas</th><th class="num">Valor comprado</th></tr></thead><tbody id="r-asesores"></tbody></table>
+        </div>
+        <div class="card"><h3 class="card-tit">Vehículos más cotizados</h3><div id="r-modelos" class="barras"></div></div>
+      </div>
+      <div class="card modelo-card">
+        <h3 class="card-tit">Qué tan confiable es el modelo</h3>
+        <div class="metricas" id="metricas"></div>
+        <p class="hint" id="lujo-txt">–</p>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- INVENTARIO -->
+    <section class="vista" data-vista="inventario" hidden>
+      <header class="vista-head">
+        <div><h2>Inventario</h2><p class="hint" id="inv-sub">–</p></div>
+        <button class="btn btn-pri auto" id="btn-nueva-unidad">＋ Nueva unidad</button>
+      </header>
+      <div class="card">
+        <div class="toolbar">
+          <input type="search" id="i-texto" placeholder="Buscar vehículo, placa o agencia…">
+          <select id="i-estado"><option value="activas">En piso y reservadas</option><option>En piso</option><option>Reservada</option><option>Vendida</option><option>Liquidada</option><option value="todas">Todas</option></select>
+          <select id="i-linea"><option value="">Todas las líneas</option><option>1001</option><option>Autos OK</option></select>
+          <select id="i-agencia"><option value="">Todas las agencias</option></select>
+          <select id="i-sem"><option value="">Todos los semáforos</option><option value="verde">Verde</option><option value="amarillo">Amarillo</option><option value="rojo">Rojo</option></select>
+        </div>
+        <div class="tabla-wrap">
+          <table class="tabla ordenable" id="i-tabla">
+            <thead><tr>
+              <th data-k="sem"></th><th data-k="vehiculo">Vehículo</th><th data-k="linea">Línea / agencia</th>
+              <th data-k="dias" class="num">Días</th><th data-k="costo_acumulado" class="num">Costo acum.</th>
+              <th data-k="precio_publicado" class="num">Publicado</th><th data-k="mercado" class="num">Mercado</th>
+              <th data-k="conf" title="Qué tan confiable es el valor de mercado">Confianza</th>
+              <th data-k="pct_vs_mercado" class="num">vs mercado</th><th data-k="sugerido" class="num">Sugerido</th>
+              <th data-k="recomendacion">Recomendación</th><th data-k="dias_hasta_equilibrio" class="num">Equilibrio</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <p class="vacio-tabla" id="i-vacio" hidden>No hay unidades con estos filtros.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- DETALLE DE UNIDAD -->
+    <section class="vista" data-vista="unidad" hidden>
+      <header class="vista-head">
+        <div><a class="volver" href="#/inventario">← Inventario</a><h2 id="un-tit">–</h2><p class="hint" id="un-meta">–</p></div>
+        <div class="acciones">
+          <button class="btn btn-ghost auto" id="un-editar">✎ Editar datos y referencia</button>
+          <button class="btn btn-ghost auto" id="un-vender">Marcar vendida / estado</button>
+        </div>
+      </header>
+      <div id="un-activa">
+        <div class="card sug-card" id="un-sug">
+          <div class="sug-main">
+            <p class="k light">Precio sugerido de hoy</p>
+            <p class="valor sm" id="un-sugerido">–</p>
+            <p class="sug-rec"><span id="un-rec"></span><span id="un-sem"></span></p>
+            <p class="res-sub light" id="un-texto">–</p>
+            <div class="row-btns">
+              <button class="btn btn-amarillo" id="un-aplicar">Aplicar sugerido</button>
+              <button class="btn btn-claro" id="un-otro">Otro precio…</button>
+            </div>
+          </div>
+          <div class="sug-datos" id="un-datos"></div>
+        </div>
+        <div class="card">
+          <h3 class="card-tit">Costo, mercado y precio por día en piso</h3>
+          <p class="hint">El <b>costo acumulado</b> es el piso de equilibrio; el precio lo define el <b>mercado</b> y los días en piso, no lo que ya se gastó.</p>
+          <div class="chart-box xl"><canvas id="ch-unidad"></canvas></div>
+        </div>
+      </div>
+      <div class="card" id="un-vendida" hidden></div>
+      <div class="res-grid iguales un-bloques">
+        <div class="card" id="un-costo">
+          <h3 class="card-tit">Cómo se calcula el costo diario</h3>
+          <p class="hint" id="un-costo-sub">–</p>
+          <table class="tabla compacta"><thead><tr><th>Componente y cálculo</th><th class="num">USD/día</th></tr></thead><tbody id="un-costo-filas"></tbody></table>
+          <div class="costo-total" id="un-costo-total"></div>
+        </div>
+        <div class="card" id="un-mercado">
+          <h3 class="card-tit">Mercado: de dónde sale el valor</h3>
+          <div id="un-conf"></div>
+          <div class="ref-valores" id="un-ref"></div>
+          <div class="row-btns"><button class="btn btn-ghost auto" id="un-ref-btn" type="button">Fijar referencia manual…</button></div>
+        </div>
+      </div>
+      <div class="card" id="un-comps-card">
+        <h3 class="card-tit">Avisos parecidos en Patio Tuerca</h3>
+        <p class="hint" id="un-comps-sub">–</p>
+        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Aviso</th><th class="num">Año</th><th class="num">Km</th><th class="num">Precio</th><th class="num">vs mercado</th><th>Ciudad</th><th></th></tr></thead><tbody id="un-comps"></tbody></table>
+        <p class="vacio-tabla" id="un-comps-vacio" hidden>No hay avisos parecidos de esta familia.</p></div>
+      </div>
+      <div class="card" style="margin-top:18px">
+        <h3 class="card-tit">Historial de precios</h3>
+        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Anterior</th><th class="num">Nuevo</th><th class="num">Sugerido</th><th>Motivo</th><th>Usuario</th></tr></thead><tbody id="un-historial"></tbody></table></div>
+      </div>
+      <div class="card" style="margin-top:18px" id="un-refs-card" hidden>
+        <h3 class="card-tit">Historial de referencias manuales de mercado</h3>
+        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Referencia</th><th class="num">Valor del modelo ese día</th><th>Fuente</th><th>Usuario</th></tr></thead><tbody id="un-refs"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- TABLERO DE OBJETIVOS -->
+    <section class="vista" data-vista="tablero" hidden>
+      <header class="vista-head">
+        <div><h2>Tablero de objetivos</h2><p class="hint">Todo cambio de precio sigue reglas y se revisa en la reunión semanal: aquí se ve si vamos a cumplir las metas y qué hay que decidir esta semana.</p></div>
+      </header>
+
+      <div class="bloque-tit"><span>A</span><div><h3>¿Vamos a cumplir las metas?</h3><p class="hint">Las cuatro metas del caso, con su línea base. Verde: cumplida · ámbar: ya recorrió la mitad del camino · rojo: falta más de la mitad.</p></div></div>
+      <div class="obj-grid" id="t-obj"></div>
+
+      <div class="bloque-tit"><span>B</span><div><h3>¿Qué hay que decidir esta semana?</h3><p class="hint">Lista para la reunión semanal: solo las unidades que necesitan una decisión, de la más urgente a la menos urgente.</p></div></div>
+      <div class="card">
+        <div class="pend-head"><b id="t-pend">–</b><div id="t-sem" class="chips-sem"></div></div>
+        <div class="tabla-wrap"><table class="tabla" id="t-dec-tabla"><thead><tr><th></th><th>Vehículo</th><th class="num">Días</th><th class="num">Publicado</th><th class="num">Sugerido</th><th>Recomendación</th><th>Por qué está aquí</th><th></th></tr></thead><tbody id="t-dec"></tbody></table>
+        <p class="vacio-tabla" id="t-dec-vacio" hidden>Nada pendiente de decidir esta semana. 🎉</p></div>
+      </div>
+
+      <div class="bloque-tit"><span>C</span><div><h3>¿Dónde está el dinero?</h3><p class="hint">Cuánto capital tienen parado los carros en piso y cuánto cuesta cada día de espera, por tramo de antigüedad.</p></div></div>
+      <div class="kpis k6" id="t-kpis"></div>
+      <div class="res-grid iguales">
+        <div class="card"><h3 class="card-tit">Unidades por tramo de días</h3><div class="chart-box sm"><canvas id="ch-tramos"></canvas></div></div>
+        <div class="card"><h3 class="card-tit">Capital invertido por tramo de días</h3><div class="chart-box sm"><canvas id="ch-capital"></canvas></div></div>
+      </div>
+
+      <div class="bloque-tit"><span>＋</span><div><h3>Excepciones de precio</h3><p class="hint" id="t-exc-sub">–</p></div></div>
+      <div class="card">
+        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th>Vehículo</th><th class="num">Sugerido</th><th class="num">Aplicado</th><th class="num">Diferencia</th><th>Motivo</th><th>Usuario</th><th>Estado</th></tr></thead><tbody id="t-exc"></tbody></table>
+        <p class="vacio-tabla" id="t-exc-vacio" hidden>Sin excepciones.</p></div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- PARÁMETROS -->
+    <section class="vista" data-vista="parametros" hidden>
+      <header class="vista-head"><div><h2>Parámetros</h2><p class="hint">Reglas del precio dinámico. Los cambios aplican a todas las unidades.</p></div></header>
+      <div class="usr-grid par-grid">
+        <form class="card" id="f-param">
+          <h3 class="card-tit">Costo diario de cada carro</h3>
+          <p class="hint">Se calcula <b>por unidad</b>: el capital y el seguro dependen de lo que se invirtió en cada carro; el patio y el lavado son fijos. Marca cada valor como dato de la empresa o supuesto.</p>
+          <div class="cparam" data-c="capital">
+            <div class="cparam-top"><label class="lbl">Capital <small>(% anual sobre compra + reacondicionamiento)</small></label><span class="tag-fuente" data-tag="tasa_capital_anual"></span></div>
+            <div class="cparam-in"><input type="number" step="0.1" min="0" max="100" name="tasa_capital_anual" required><select name="fuente_tasa_capital_anual"><option value="empresa">Dato de la empresa</option><option value="supuesto">Supuesto</option></select></div>
+            <p class="cparam-nota">Lo que cuesta tener plata inmovilizada en el carro. Ejemplo de 1001Carros: USD 15.715 × 12 % ÷ 365 = USD 5,17 por día.</p>
+          </div>
+          <div class="cparam" data-c="seguro">
+            <div class="cparam-top"><label class="lbl">Seguro <small>(% anual sobre compra + reacondicionamiento)</small></label><span class="tag-fuente" data-tag="tasa_seguro_anual"></span></div>
+            <div class="cparam-in"><input type="number" step="0.1" min="0" max="100" name="tasa_seguro_anual" required><select name="fuente_tasa_seguro_anual"><option value="empresa">Dato de la empresa</option><option value="supuesto">Supuesto</option></select></div>
+            <p class="cparam-nota">Seguro del vehículo mientras está en el patio; crece con el valor del carro.</p>
+          </div>
+          <div class="cparam" data-c="espacio">
+            <div class="cparam-top"><label class="lbl">Espacio en patio <small>(USD por día, igual para todos)</small></label><span class="tag-fuente" data-tag="costo_espacio_diario"></span></div>
+            <div class="cparam-in"><input type="number" step="0.01" min="0" name="costo_espacio_diario" required><select name="fuente_costo_espacio_diario"><option value="empresa">Dato de la empresa</option><option value="supuesto">Supuesto</option></select></div>
+            <p class="cparam-nota">Arriendo, vigilancia y servicios del lugar que ocupa el carro en el patio.</p>
+          </div>
+          <div class="cparam" data-c="lavado">
+            <div class="cparam-top"><label class="lbl">Lavado y mantenimiento <small>(USD por día, igual para todos)</small></label><span class="tag-fuente" data-tag="costo_lavado_diario"></span></div>
+            <div class="cparam-in"><input type="number" step="0.01" min="0" name="costo_lavado_diario" required><select name="fuente_costo_lavado_diario"><option value="empresa">Dato de la empresa</option><option value="supuesto">Supuesto</option></select></div>
+            <p class="cparam-nota">Lavado, carga de batería y mantenimiento básico para que el carro se mantenga presentable.</p>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div><label class="lbl">Piso de margen (% sobre el costo)</label><input type="number" step="0.5" min="0" name="piso_margen"></div>
+          </div>
+          <h3 class="card-tit" style="margin-top:18px">Tramos de días en piso</h3>
+          <p class="hint">Último día de cada tramo y ajuste del precio frente al mercado (el primer tramo mantiene el precio si está dentro del rango de mercado).</p>
+          <div class="grid2">
+            <div><label class="lbl">Fin tramo 1 (días)</label><input type="number" min="1" name="t0"></div>
+            <div><label class="lbl">Ajuste tramo 2 (%)</label><input type="number" step="0.5" name="a1"></div>
+            <div><label class="lbl">Fin tramo 2 (días)</label><input type="number" min="1" name="t1"></div>
+            <div><label class="lbl">Ajuste tramo 3 (%)</label><input type="number" step="0.5" name="a2"></div>
+            <div><label class="lbl">Fin tramo 3 (días) · fin del margen</label><input type="number" min="1" name="t2"></div>
+            <div><label class="lbl">Ajuste tramo 4 (%)</label><input type="number" step="0.5" name="a3"></div>
+            <div><label class="lbl">Fin tramo 4 (días) · desde aquí se liquida</label><input type="number" min="1" name="t3"></div>
+            <div><label class="lbl">Ajuste liquidación (%)</label><input type="number" step="0.5" name="a4"></div>
+          </div>
+          <h3 class="card-tit" style="margin-top:18px">Control</h3>
+          <div class="grid3">
+            <div><label class="lbl">Revisar cada (días)</label><input type="number" min="1" name="dias_revision"></div>
+            <div><label class="lbl">Tolerancia banda (±%)</label><input type="number" step="0.5" min="0" name="tolerancia_banda"></div>
+            <div><label class="lbl">Excepción desde (±%)</label><input type="number" step="0.5" min="0" name="tolerancia_excepcion"></div>
+          </div>
+          <h3 class="card-tit" style="margin-top:18px">Metas del Tablero de objetivos</h3>
+          <p class="hint">Línea base y meta de cada objetivo del caso. El beneficio se mide como margen recuperado + costo de capital evitado en las unidades vendidas antes del último tramo.</p>
+          <div class="grid2">
+            <div><label class="lbl">Días promedio: línea base</label><input type="number" step="1" min="0" name="base_dias_promedio"></div>
+            <div><label class="lbl">Días promedio: meta</label><input type="number" step="1" min="0" name="meta_dias_promedio"></div>
+            <div><label class="lbl">Unidades de más de 120 días: línea base (%)</label><input type="number" step="0.1" min="0" max="100" name="base_pct_mas_120"></div>
+            <div><label class="lbl">Unidades de más de 120 días: meta (%)</label><input type="number" step="0.1" min="0" max="100" name="meta_pct_mas_120"></div>
+            <div><label class="lbl">Cambios de precio dentro de la regla: meta (%)</label><input type="number" step="1" min="0" max="100" name="meta_pct_en_regla"></div>
+            <div><label class="lbl">Beneficio acumulado: meta al año (USD)</label><input type="number" step="1000" min="0" name="meta_beneficio_anual"></div>
+          </div>
+          <p class="form-err" id="par-err" hidden></p>
+          <div class="row-btns"><button class="btn btn-pri" type="submit">Guardar parámetros</button>
+            <button class="btn btn-ghost" type="button" id="par-simular">Simular en la unidad →</button>
+            <button class="btn btn-ghost" type="button" id="par-defecto">Valores por defecto</button></div>
+        </form>
+        <div class="par-der">
+        <div class="card">
+          <h3 class="card-tit">El costo diario según el valor del carro</h3>
+          <p class="hint">Se recalcula al escribir en el formulario (antes de guardar).</p>
+          <table class="tabla compacta" id="par-costos"><thead><tr><th></th><th class="num">Carro de USD 17.000</th><th class="num">Carro de USD 76.500</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <h3 class="card-tit">Unidad de ejemplo</h3>
+          <p class="hint">Elige una unidad y pulsa <b>Simular</b> para ver cómo cambia con los valores del formulario, sin guardar.</p>
+          <select id="par-unidad"></select>
+          <table class="tabla compacta" style="margin-top:12px"><thead><tr><th></th><th class="num">Guardado</th><th class="num">Simulado</th></tr></thead><tbody id="par-ejemplo"></tbody></table>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- USUARIOS -->
+    <section class="vista" data-vista="usuarios" hidden>
+      <header class="vista-head"><div><h2>Usuarios</h2><p class="hint">Crea las cuentas de los asesores. Un administrador ve todas las cotizaciones y el resumen de todo el equipo.</p></div></header>
+      <div class="usr-grid">
+        <form class="card" id="f-usuario">
+          <h3 class="card-tit">Nuevo usuario</h3>
+          <label class="lbl">Nombre completo</label><input type="text" name="nombre" required>
+          <label class="lbl">Usuario</label><input type="text" name="usuario" required placeholder="ej. jlopez" pattern="[A-Za-z0-9._\-]+">
+          <label class="lbl">Contraseña inicial</label><input type="text" name="clave" required minlength="6">
+          <label class="lbl">Rol</label>
+          <select name="rol"><option value="asesor">Asesor</option><option value="admin">Administrador</option></select>
+          <p class="form-err" id="usr-err" hidden></p>
+          <button class="btn btn-pri" type="submit">Crear usuario</button>
+        </form>
+        <div class="card">
+          <table class="tabla"><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody id="u-tabla"></tbody></table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ===================== DETALLE DE COTIZACIÓN ===================== -->
+<div class="modal" id="m-cot" hidden>
+  <div class="modal-card">
+    <button class="icon-btn modal-x" data-cerrar>✕</button>
+    <p class="k" id="mc-num">–</p>
+    <h3 id="mc-veh">–</h3>
+    <p class="hint" id="mc-meta">–</p>
+    <div class="mc-valores">
+      <div><small>Valor de mercado</small><b id="mc-mercado">–</b></div>
+      <div><small>Oferta sugerida</small><b id="mc-oferta">–</b></div>
+      <div><small>Confianza</small><b id="mc-conf">–</b></div>
+    </div>
+    <form id="f-mc">
+      <div class="grid3">
+        <div class="span2"><label class="lbl">Cliente</label><input type="text" name="cliente"></div>
+        <div><label class="lbl">Teléfono</label><input type="text" name="telefono"></div>
+        <div class="span2"><label class="lbl">Correo</label><input type="text" name="correo"></div>
+        <div><label class="lbl">Placa</label><input type="text" name="placa"></div>
+        <div><label class="lbl">Color</label><input type="text" name="color"></div>
+        <div><label class="lbl">Oferta final</label><div class="km-box wide"><span>$</span><input type="number" name="oferta_final" step="100" min="0"></div></div>
+        <div><label class="lbl">Estado</label><select name="estado"></select></div>
+        <div class="span3"><label class="lbl">Notas</label><textarea name="notas" rows="3"></textarea></div>
+      </div>
+      <p class="form-err" id="mc-err" hidden></p>
+      <div class="row-btns">
+        <button class="btn btn-pri" type="submit">Guardar cambios</button>
+        <button class="btn btn-ghost" type="button" id="mc-imprimir">🖨 Imprimir</button>
+        <button class="btn btn-ghost" type="button" id="mc-recotizar">↻ Recotizar hoy</button>
+        <button class="btn btn-pri" type="button" id="mc-inventario" hidden>🚗 Pasar a inventario</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== NUEVA UNIDAD ===================== -->
+<div class="modal" id="m-unidad" hidden>
+  <form class="modal-card" id="f-unidad">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3 id="nu-tit">Nueva unidad</h3>
+    <p class="hint" id="nu-sub">Registra un carro que está en el patio.</p>
+    <div class="grid2">
+      <div><label class="lbl">Marca</label><div class="combo" id="cb-u-marca"><input type="text" placeholder="Toyota, Kia…" autocomplete="off"><ul class="combo-list"></ul></div></div>
+      <div><label class="lbl">Modelo</label><div class="combo" id="cb-u-modelo"><input type="text" placeholder="Elige primero la marca" autocomplete="off" disabled><ul class="combo-list"></ul></div></div>
+      <div><label class="lbl">Versión <small>(opcional)</small></label><select id="u-version" disabled><option value="">No sé / estándar</option></select></div>
+      <div><label class="lbl">Año</label><input type="number" name="anio" min="1990" max="2027" required></div>
+      <div><label class="lbl">Kilometraje</label><input type="number" name="km" min="0" step="1000" required></div>
+      <div><label class="lbl">Fecha de ingreso al patio</label><input type="date" name="fecha_ingreso" required></div>
+      <div><label class="lbl">Línea</label><select name="linea"><option>1001</option><option>Autos OK</option></select></div>
+      <div><label class="lbl">Agencia</label><input type="text" name="agencia" list="lista-agencias" placeholder="Quito Norte…"></div>
+      <div><label class="lbl">Costo de compra (USD)</label><input type="number" name="costo_compra" min="1" step="1" required></div>
+      <div><label class="lbl">Reacondicionamiento (USD)</label><input type="number" name="reacondicionamiento" min="0" step="10" value="0"></div>
+      <div><label class="lbl">Precio publicado (USD)</label><input type="number" name="precio_publicado" min="1" step="1" required></div>
+      <div><label class="lbl">Placa</label><input type="text" name="placa"></div>
+      <div><label class="lbl">Color</label><input type="text" name="color"></div>
+    </div>
+    <details class="opc">
+      <summary>Opcional: precio de nuevo, referencia de mercado y costo propio</summary>
+      <p class="hint">Úsalos cuando el modelo tenga pocos datos del carro (confianza baja) o el carro tenga condiciones especiales.</p>
+      <div class="grid2">
+        <div><label class="lbl">Precio de nuevo con IVA (USD)</label><input type="number" name="pn_con_iva" min="1" step="1" placeholder="Si lo dejas vacío, se busca solo"></div>
+        <div><label class="lbl">Costo diario propio (USD)</label><input type="number" name="costo_diario_manual" min="0" step="0.01" placeholder="Reemplaza el cálculo por parámetros"></div>
+        <div><label class="lbl">Referencia de mercado (USD)</label><input type="number" name="mercado_manual" min="1" step="1" placeholder="Valor del carro hoy"></div>
+        <div><label class="lbl">Fuente de la referencia</label><input type="text" name="fuente_mercado_manual" placeholder="ej. comparables Patio Tuerca 03-11-2026"></div>
+      </div>
+    </details>
+    <datalist id="lista-agencias"></datalist>
+    <p class="form-err" id="nu-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Guardar en inventario</button>
+  </form>
+</div>
+
+<!-- ===================== EDITAR UNIDAD ===================== -->
+<div class="modal" id="m-editar" hidden>
+  <form class="modal-card" id="f-editar">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3>Editar datos y referencia</h3>
+    <p class="hint" id="ed-sub">–</p>
+    <h4 class="sub-tit">Mercado</h4>
+    <div class="grid2">
+      <div><label class="lbl">Precio de nuevo con IVA (USD) <small id="ed-pn-origen"></small></label><input type="number" name="pn_con_iva" min="1" step="1"></div>
+      <div></div>
+      <div><label class="lbl">Referencia de mercado hoy (USD)</label><input type="number" name="mercado_manual" min="1" step="1" placeholder="Vacío = usar el modelo"></div>
+      <div><label class="lbl">Fuente de la referencia</label><input type="text" name="fuente_mercado_manual" placeholder="ej. comparables Patio Tuerca 03-11-2026"></div>
+    </div>
+    <p class="hint" id="ed-ref-hint">–</p>
+    <h4 class="sub-tit">Costos de esta unidad</h4>
+    <div class="grid2">
+      <div><label class="lbl">Costo de compra (USD)</label><input type="number" name="costo_compra" min="1" step="1"></div>
+      <div><label class="lbl">Reacondicionamiento (USD)</label><input type="number" name="reacondicionamiento" min="0" step="10"></div>
+    </div>
+    <p class="hint">Costo diario propio: déjalo vacío para usar los parámetros. Un total propio reemplaza a todos los componentes.</p>
+    <div class="grid3">
+      <div><label class="lbl">Total por día</label><input type="number" name="costo_diario_manual" min="0" step="0.01"></div>
+      <div><label class="lbl">Capital</label><input type="number" name="costo_capital_manual" min="0" step="0.01"></div>
+      <div><label class="lbl">Seguro</label><input type="number" name="costo_seguro_manual" min="0" step="0.01"></div>
+      <div><label class="lbl">Espacio en patio</label><input type="number" name="costo_espacio_manual" min="0" step="0.01"></div>
+      <div><label class="lbl">Lavado y mantenimiento</label><input type="number" name="costo_lavado_manual" min="0" step="0.01"></div>
+    </div>
+    <h4 class="sub-tit">Ficha</h4>
+    <div class="grid3">
+      <div><label class="lbl">Línea</label><select name="linea"><option>1001</option><option>Autos OK</option></select></div>
+      <div><label class="lbl">Agencia</label><input type="text" name="agencia" list="lista-agencias"></div>
+      <div><label class="lbl">Placa</label><input type="text" name="placa"></div>
+    </div>
+    <p class="form-err" id="ed-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Guardar cambios</button>
+  </form>
+</div>
+
+<!-- ===================== MANTENER CON MOTIVO ===================== -->
+<div class="modal" id="m-mantener" hidden>
+  <form class="modal-card chica" id="f-mantener">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3>Mantener con motivo</h3>
+    <p class="hint" id="mt-sub">–</p>
+    <label class="lbl">Motivo</label>
+    <textarea name="motivo" rows="3" required placeholder="Por qué se mantiene el precio actual y no el sugerido"></textarea>
+    <p class="form-err" id="mt-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Registrar revisión</button>
+  </form>
+</div>
+
+<!-- ===================== OTRO PRECIO ===================== -->
+<div class="modal" id="m-precio" hidden>
+  <form class="modal-card chica" id="f-precio">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3>Otro precio</h3>
+    <p class="hint" id="pr-sug">–</p>
+    <label class="lbl">Precio nuevo (USD)</label><input type="number" name="precio" min="1" step="1" required>
+    <label class="lbl">Motivo <small id="pr-obl">(obligatorio si se aleja del sugerido)</small></label>
+    <textarea name="motivo" rows="3" placeholder="Por qué se aplica un precio distinto al sugerido"></textarea>
+    <p class="hint" id="pr-aviso"></p>
+    <p class="form-err" id="pr-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Aplicar precio</button>
+  </form>
+</div>
+
+<!-- ===================== VENTA / ESTADO ===================== -->
+<div class="modal" id="m-venta" hidden>
+  <form class="modal-card chica" id="f-venta">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3>Estado de la unidad</h3>
+    <label class="lbl">Estado</label><select name="estado_inv"><option>En piso</option><option>Reservada</option><option>Vendida</option><option>Liquidada</option></select>
+    <div id="vt-campos">
+      <label class="lbl">Fecha de venta</label><input type="date" name="fecha_venta">
+      <label class="lbl">Precio de venta (USD)</label><input type="number" name="precio_venta" min="1" step="1">
+    </div>
+    <p class="form-err" id="vt-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Guardar</button>
+  </form>
+</div>
+
+<!-- ===================== CAMBIAR CONTRASEÑA ===================== -->
+<div class="modal" id="m-clave" hidden>
+  <form class="modal-card chica" id="f-clave">
+    <button class="icon-btn modal-x" type="button" data-cerrar>✕</button>
+    <h3>Cambiar mi contraseña</h3>
+    <label class="lbl">Contraseña actual</label><input type="password" name="actual" required autocomplete="current-password">
+    <label class="lbl">Nueva contraseña</label><input type="password" name="nueva" required minlength="6" autocomplete="new-password">
+    <p class="form-err" id="clave-err" hidden></p>
+    <button class="btn btn-pri" type="submit">Cambiar</button>
+  </form>
+</div>
+
+<!-- ===================== HOJA PARA IMPRIMIR ===================== -->
+<div class="hoja" id="hoja"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
