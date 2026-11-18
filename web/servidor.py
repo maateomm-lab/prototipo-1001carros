@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-COTIZADOR INTERNO 1001Carros (tesis)
+PRICING DINÁMICO 1001 · INVENTARIO (tesis)
 
-Aplicación para los empleados: cotizar con el modelo XGBoost de ../xgboost/, guardar cotizaciones con los datos
-del cliente, seguir su estado e imprimirlas. Usuarios con contraseña (rol asesor o admin).
+Aplicación para los empleados: inventario de unidades con precio sugerido por día en piso, tablero de objetivos y
+pruebas con usuarios. Usa el modelo XGBoost de ../xgboost/ como apoyo. Usuarios con contraseña (rol asesor o admin).
+La calculadora de precio de toma (cotizador) ya no aparece en la página (v4); sus rutas y datos se conservan.
 No necesita instalar nada nuevo: usa el servidor web y la base SQLite que ya trae Python.
 
 Uso
@@ -51,6 +52,7 @@ sys.path.insert(0, str(CARPETA.parent / "xgboost"))
 import pricing_ml as P  # noqa: E402
 import base_datos as BD  # noqa: E402
 import inventario as INV  # noqa: E402
+import datos_caso as CASO  # noqa: E402
 
 STATIC = CARPETA / "static"
 BD.crear_tablas()
@@ -65,6 +67,8 @@ print("Cargando avisos para comparables...")
 AVISOS = P.limpiar_usados(P.USADOS_DEF)[["marca", "familia", "version", "titulo", "anio", "km", "precio", "ciudad", "url"]]
 N_FAMILIA = AVISOS.familia.value_counts().to_dict()
 LOCK = threading.Lock()     # un solo hilo usa XGBoost a la vez
+MAPA_FAMILIAS = CASO.mapa_familias(ART, N_FAMILIA)     # texto de familia del caso -> (marca, familia) del catálogo
+VERSION = "v4 · 17-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
 
 
 # ----------------------------------------------------------------------------- catálogo
@@ -178,7 +182,11 @@ _CURVAS = {}      # (unidad, día) -> curva de mercado; el mercado de una unidad
 
 
 def parametros():
-    return INV.validar_parametros(BD.parametros_guardados())
+    guardados = BD.parametros_guardados()
+    p = INV.validar_parametros(guardados)
+    if guardados and "costos_adicionales" not in guardados:     # migración v4: seguro, patio y lavado vuelven a 0 (Entrega 1)
+        BD.guardar_parametros("migración v4", p)
+    return p
 
 
 def curva_unidad(u, hasta):
@@ -200,20 +208,36 @@ def confianza_unidad(u, fila):
     c = confianza(r, n)
     manual = u.get("mercado_manual") is not None
     n_anio = int(((AVISOS.familia == u["familia"]) & (AVISOS.anio == u["anio"])).sum())
-    return {**c, **INV.explicar_confianza(c["nivel"], c["ancho"], n, r["fuera_de_rango"], bool(u.get("pn_con_iva")),
-                                          manual, P.LIMITE_CONFIABLE, n_anio, u["anio"]), "referencia_manual": manual,
-            "limite": P.LIMITE_CONFIABLE, "n_anio": n_anio}
+    out = {**c, **INV.explicar_confianza(c["nivel"], c["ancho"], n, r["fuera_de_rango"], bool(u.get("pn_con_iva")),
+                                         manual, P.LIMITE_CONFIABLE, n_anio, u["anio"]), "referencia_manual": manual,
+           "limite": P.LIMITE_CONFIABLE, "n_anio": n_anio}
+    ref = INV.referencia_unidad(u)
+    if ref["tipo"] == "apendice":       # con referencia del Apéndice E la confianza sale de cuántos anuncios la respaldan
+        out.update(nivel=ref["nivel"], texto=INV.texto_confianza_apendice(ref), motivos=[], n_apendice=ref["n"])
+    return out
 
 
-def evaluar_unidad(u, p, hoy=None):
-    """Unidad + cálculos del día. Las ya vendidas solo traen la utilidad real."""
+def stock_familias(unidades=None):
+    """Unidades en piso (o reservadas) por familia: la regla baja el margen objetivo cuando hay varias iguales."""
+    n = {}
+    for x in (unidades if unidades is not None else BD.listar_unidades()):
+        if x["estado"] in ("En piso", "Reservada"):
+            n[x["familia"]] = n.get(x["familia"], 0) + 1
+    return n
+
+
+def evaluar_unidad(u, p, hoy=None, stock=None):
+    """Unidad + cálculos del día. Las ya vendidas solo traen la utilidad real.
+    stock: resultado de stock_familias() cuando se evalúan muchas unidades (para no consultar la base cada vez)."""
     if u["estado"] in ("Vendida", "Liquidada"):
         return {**u, **INV.utilidad_real(u, p), "semaforo": None}
+    n_fam = max((stock if stock is not None else stock_familias()).get(u["familia"], 1), 1)
     cu = curva_unidad(u, max(INV.DIAS_CURVA, INV.dias_en_piso(u, hoy) + 60))
     fila = cu[min(INV.dias_en_piso(u, hoy), len(cu) - 1)]
     auto = dict(marca=u["marca"], familia=u["familia"], version=u["version"], anio=u["anio"], km=u["km"])
     _, n = comparables(auto, fila["mercado"])
-    return {**u, **INV.evaluar(u, cu, p, hoy, n_comparables=n, conf=confianza_unidad(u, fila))}
+    return {**u, **INV.evaluar(u, cu, p, hoy, n_comparables=n, conf=confianza_unidad(u, fila), stock=n_fam,
+                               ref=INV.referencia_unidad(u))}
 
 
 def nombre_unidad(q):
@@ -230,7 +254,7 @@ def valor_modelo_hoy(u):
     d = INV.dias_en_piso(u)
     with LOCK:
         cu = INV.curva_mercado(ART, u, max(d, 1))
-    return cu[min(d, len(cu) - 1)]["mercado"]
+    return cu[min(d, len(cu) - 1)]["modelo"]       # lo que dice el modelo, no la referencia del Apéndice E
 
 
 def crear_unidad(yo, q):
@@ -276,18 +300,41 @@ def editar_unidad(yo, uid, q):
     BD.actualizar_unidad(uid, q, usuario=yo["usuario"])
 
 
+def anuncios_1001():
+    """Los 100 anuncios reales de 1001carros.com del 7-oct-2026 con su marca y familia del catálogo del modelo, y el
+    costo propuesto (precio publicado ÷ 1,12)."""
+    out = []
+    for i, x in enumerate(CASO.anuncios_1001()):
+        mf = CASO.buscar(MAPA_FAMILIAS, x["f"])
+        if mf:
+            out.append(dict(idx=i, marca=mf[0], familia=mf[1], modelo=x["m"], anio=x["a"], km=x["k"], precio=x["p"],
+                            ciudad=x["c"], costo=round(x["p"] / CASO.MARGEN_PUBLICADO, -1)))
+    return out
+
+
+def historico_modelo(familia):
+    """Frase con el histórico del modelo en la base del caso (días en inventario), o None si no hay."""
+    h = CASO.hist_de_familia(familia)
+    nombre = P.nombre_familia(familia)
+    if h and h["n"] >= 5:
+        return dict(**h, nombre=nombre, texto=f"En la base del caso, {nombre} se vendió con mediana de {h['med']} días "
+                    f"({h['n']} ventas); {str(h['p120']).replace('.', ',')} % pasó de 120 días y "
+                    f"{str(h['p60']).replace('.', ',')} % se vendió en 60 días o menos.")
+    return None
+
+
 def detalle_unidad(uid, p):
     u = BD.obtener_unidad(uid)
     e = evaluar_unidad(u, p)
-    out = dict(unidad=u, evaluacion=e, parametros=p, historial=BD.historial_precios(uid),
+    out = dict(historico_modelo=historico_modelo(u["familia"]),unidad=u, evaluacion=e, parametros=p, historial=BD.historial_precios(uid),
                referencias=BD.historial_referencias(uid), tramos=INV.nombres_tramos(p), limites=p["tramos"],
                desglose=INV.desglose_costo(u, p, e["dias"]))
     if u["estado"] not in ("Vendida", "Liquidada"):
         d = e["dias"]
         cu = curva_unidad(u, max(INV.DIAS_CURVA, d + 60))
         de = e["dia_equilibrio"]
-        hasta = min(len(cu) - 1, max((de + 30) if de is not None else 180, d + 30, 120))
-        out["curvas"] = INV.serie(u, cu, p, hasta)
+        hasta = min(len(cu) - 1, max(d + 60, (de + 30) if de is not None else 0, 90))     # hoy + 60 días o el equilibrio + 30
+        out["curvas"] = INV.serie(u, cu, p, hasta, stock=e["stock"])
         comps, n = comparables(dict(familia=u["familia"], anio=u["anio"], km=u["km"], version=u["version"]), e["mercado"])
         out["comparables"], out["n_comparables"] = comps[:15], n
     return out
@@ -295,9 +342,9 @@ def detalle_unidad(uid, p):
 
 def lista_inventario(q):
     p = parametros()
-    filas = []
+    filas, stock = [], stock_familias()
     for u in BD.listar_unidades(q):
-        e = evaluar_unidad(u, p)
+        e = evaluar_unidad(u, p, stock=stock)
         if q.get("semaforo") and e["semaforo"] != q["semaforo"]:
             continue
         filas.append(e)
@@ -314,23 +361,27 @@ def decisiones_semana(en_piso, p, hoy=None):
         u, e = f["u"], f["e"]
         motivos = []                                           # (prioridad, texto)
         if e["semaforo"] == "rojo":
-            razones = ([f"más de {p['tramos'][2]} días en piso"] if e["dias"] > p["tramos"][2] else []) + \
+            razones = (["pérdida inevitable: el costo acumulado supera al mercado"] if e["caso"] == "perdida_inevitable" else []) + \
+                      ([f"más de {p['tramos'][3]} días en piso"] if e["dias"] > p["tramos"][3] else []) + \
                       (["publicado bajo el costo acumulado"] if u["precio_publicado"] < e["costo_acumulado"] else [])
-            motivos.append((0, "En rojo: " + " y ".join(razones)))
+            motivos.append((0, "Crítico: " + " y ".join(razones)))
+        elif e["semaforo"] == "naranja":
+            motivos.append((1, f"Alerta: va al comité antes de cruzar los {p['tramos'][3]} días"))
         if e["revision_vencida"]:
             sin = (hoy - date.fromisoformat((u.get("ultima_revision") or u["fecha_ingreso"])[:10])).days
-            motivos.append((1, f"Revisión vencida ({sin} días sin revisar)"))
+            motivos.append((2, f"Revisión vencida ({sin} días sin revisar)"))
         if e["aviso_confianza"]:
-            motivos.append((2, "Confianza baja sin referencia manual"))
-        if not e["dentro_banda"]:
-            motivos.append((3, "Fuera de la banda de mercado"))
+            motivos.append((3, "Confianza baja sin referencia manual"))
+        if not e["en_banda"]:
+            motivos.append((4, "Precio publicado fuera de la banda de negociación"))
         if motivos:
             filas.append({**{k: u[k] for k in ["id", "vehiculo", "marca", "familia", "anio", "linea", "agencia", "placa",
                                                "precio_publicado", "mercado_manual"]},
                           **{k: e[k] for k in ["dias", "semaforo", "mercado", "sugerido", "recomendacion", "texto",
-                                               "costo_acumulado", "tramo_nombre"]},
+                                               "costo_acumulado", "tramo_nombre", "caso", "caso_nombre", "estado",
+                                               "accion_comercial", "minimo", "maximo"]},
                           "confianza": e["confianza"]["nivel"], "prioridad": min(m[0] for m in motivos),
-                          "motivos": [m[1] for m in sorted(motivos)], "igual": abs(e["sugerido"] - u["precio_publicado"]) < 1})
+                          "motivos": [m[1] for m in sorted(motivos)], "igual": e["recomendacion"] == "Mantener"})
     filas.sort(key=lambda r: (r["prioridad"], -r["dias"]))
     return filas
 
@@ -338,7 +389,8 @@ def decisiones_semana(en_piso, p, hoy=None):
 def tablero():
     p = parametros()
     todas = BD.listar_unidades()
-    en_piso = [dict(u=u, e=evaluar_unidad(u, p)) for u in todas if u["estado"] in ("En piso", "Reservada")]
+    stock = stock_familias(todas)
+    en_piso = [dict(u=u, e=evaluar_unidad(u, p, stock=stock)) for u in todas if u["estado"] in ("En piso", "Reservada")]
     vendidas = [u for u in todas if u["estado"] in ("Vendida", "Liquidada")]
     decisiones = decisiones_semana(en_piso, p)
     hace7 = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
@@ -352,6 +404,35 @@ def tablero():
                 excepciones=excepciones, tolerancia_excepcion=p["tolerancia_excepcion"])
 
 
+def pruebas_con_usuarios():
+    """Pruebas registradas + resumen de H1, H2 y H3 (H3 se calcula con el inventario: unidades que pasaron el día 90
+    y si tuvieron una revisión de precio con la regla hasta el día 91)."""
+    pr = BD.listar_pruebas()
+    h3 = INV.pasaron_por_comite(BD.listar_unidades(), BD.cambios_precio(3650), parametros()["tramos"][2] + 1)
+    return dict(pruebas=pr, resumen=INV.resumen_hipotesis(pr, h3), h3=h3, perfiles=INV.PERFILES,
+                vendible=INV.VENDIBLE, dispositivos=INV.DISPOSITIVOS, version=VERSION)
+
+
+def csv_pruebas():
+    """Las pruebas en CSV (separador ; y coma decimal, para abrirlo directo en Excel en español)."""
+    cols = [("fecha", "Fecha"), ("participante", "Participante"), ("perfil", "Perfil"), ("ciudad", "Ciudad"),
+            ("version", "Versión"), ("carro", "Carro probado"), ("precio_sugerido", "Precio sugerido"),
+            ("vendible", "¿Vendible en 30 días?"), ("precio_pondria", "Precio que pondría"), ("segundos", "Segundos"),
+            ("dispositivo", "Dispositivo"), ("utilidad", "Utilidad (1-5)"), ("facilidad", "Facilidad (1-5)"),
+            ("comentarios", "Comentarios"), ("nombre_usuario", "Registró")]
+    def celda(k, v):
+        if v is None:
+            return ""
+        if k == "vendible":
+            v = INV.VENDIBLE.get(v, v)
+        if isinstance(v, float):
+            v = (f"{v:.0f}" if v == int(v) else f"{v:.2f}").replace(".", ",")
+        v = str(v)
+        return '"' + v.replace('"', '""') + '"' if any(ch in v for ch in ';"\n') else v
+    filas = [";".join(t for _, t in cols)] + [";".join(celda(k, p.get(k)) for k, _ in cols) for p in BD.listar_pruebas()]
+    return "﻿" + "\r\n".join(filas) + "\r\n"
+
+
 def aplicar_precio(yo, uid, q):
     p = parametros()
     u = BD.obtener_unidad(uid)
@@ -362,11 +443,12 @@ def aplicar_precio(yo, uid, q):
         if not (q.get("motivo") or "").strip():
             raise ValueError("Escribe el motivo para mantener el precio (queda registrado para el comité)")
         nuevo = u["precio_publicado"]
+    elif q.get("aplicar_sugerido"):                        # dentro de la banda se confirma el precio actual, sin moverlo
+        nuevo = u["precio_publicado"] if e["recomendacion"] == "Mantener" else e["sugerido"]
     else:
-        nuevo = e["sugerido"] if q.get("aplicar_sugerido") else q.get("precio")
-        if q.get("aplicar_sugerido"):
-            nuevo = round(nuevo)
-    BD.aplicar_precio(uid, yo["usuario"], nuevo, e["sugerido"], q.get("motivo"), p["tolerancia_excepcion"])
+        nuevo = q.get("precio")
+    BD.aplicar_precio(uid, yo["usuario"], nuevo, e["sugerido"], q.get("motivo"), p["tolerancia_excepcion"],
+                      minimo=e["minimo"], maximo=e["maximo"], caso=e["caso"])
 
 
 # ----------------------------------------------------------------------------- servidor
@@ -490,6 +572,26 @@ class Manejador(SimpleHTTPRequestHandler):
             if m and metodo == "POST":
                 aplicar_precio(yo, int(m[1]), self._cuerpo())
                 return self._json(detalle_unidad(int(m[1]), parametros()))
+            if ruta == "/api/pruebas" and metodo == "GET":
+                return self._json(pruebas_con_usuarios())
+            if ruta == "/api/pruebas" and metodo == "POST":
+                return self._json({"id": BD.crear_prueba(yo["usuario"], self._cuerpo())})
+            m = re.fullmatch(r"/api/pruebas/(\d+)/borrar", ruta)
+            if m and metodo == "POST":
+                solo_admin(yo)
+                BD.borrar_prueba(int(m[1]))
+                return self._json({"ok": True})
+            if ruta == "/api/pruebas.csv" and metodo == "GET":
+                cuerpo = csv_pruebas().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="pruebas_prototipo_{date.today().isoformat()}.csv"')
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+                return
+            if ruta == "/api/anuncios1001" and metodo == "GET":
+                return self._json(anuncios_1001())
             if ruta in ("/api/tablero", "/api/comite") and metodo == "GET":
                 return self._json(tablero())
             m = re.fullmatch(r"/api/precios/(\d+)/aprobar", ruta)
@@ -499,7 +601,8 @@ class Manejador(SimpleHTTPRequestHandler):
                 return self._json({"ok": True})
             if ruta == "/api/parametros" and metodo == "GET":
                 return self._json(dict(parametros=parametros(), por_defecto=INV.PARAMS_DEF, tramos=INV.nombres_tramos(parametros()),
-                                       info_costos=INV.COSTOS_INFO, param_de=INV.PARAM_DE))
+                                       info_costos=INV.COSTOS_INFO, param_de=INV.PARAM_DE,
+                                       adicionales_ejemplo=INV.ADICIONALES_SENSIBILIDAD))
             if ruta == "/api/parametros" and metodo == "POST":
                 solo_admin(yo)
                 q = self._cuerpo()
@@ -550,7 +653,7 @@ def main():
     ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 para que entren otras computadoras de la red")
     a = ap.parse_args()
     srv = ThreadingHTTPServer((a.host, a.puerto), Manejador)
-    print(f"\nCotizador listo en  http://localhost:{a.puerto}   (Ctrl+C para cerrar)")
+    print(f"\nPricing dinámico 1001 · Inventario listo en  http://localhost:{a.puerto}   (Ctrl+C para cerrar)")
     if a.host == "0.0.0.0" and ip_local():
         print(f"Los demás empleados entran desde su computadora a:  http://{ip_local()}:{a.puerto}")
     if not BD.hay_usuarios():

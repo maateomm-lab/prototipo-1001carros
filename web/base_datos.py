@@ -10,6 +10,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import inventario as INV        # solo funciones puras (formato y regla de excepción); no carga el modelo
+
 DB = Path(os.environ.get("COTIZADOR_DB") or Path(__file__).resolve().parent / "datos_app" / "cotizador.db")
 DIAS_SESION = 7
 ESTADOS = ["Cotizada", "En negociación", "Comprada", "Perdida"]
@@ -31,8 +33,9 @@ COLUMNAS_NUEVAS = {
     "inventario": dict(pn_origen="TEXT", costo_diario_manual="REAL", costo_capital_manual="REAL",
                        costo_seguro_manual="REAL", costo_espacio_manual="REAL", costo_lavado_manual="REAL",
                        mercado_manual="REAL", fuente_mercado_manual="TEXT", usuario_mercado_manual="TEXT",
-                       fecha_mercado_manual="TEXT"),
-    "precios_inventario": dict(aprobado="INTEGER", aprobado_por="TEXT", aprobado_fecha="TEXT"),
+                       fecha_mercado_manual="TEXT", region="TEXT"),
+    "precios_inventario": dict(aprobado="INTEGER", aprobado_por="TEXT", aprobado_fecha="TEXT",
+                               precio_minimo="REAL", precio_maximo="REAL", caso="TEXT"),
 }
 
 
@@ -70,6 +73,11 @@ def crear_tablas():
             id INTEGER PRIMARY KEY AUTOINCREMENT, unidad_id INTEGER NOT NULL, fecha TEXT NOT NULL, valor REAL,
             fuente TEXT, usuario TEXT, valor_modelo REAL);
         CREATE INDEX IF NOT EXISTS ix_ref_unidad ON referencias_mercado(unidad_id);
+        CREATE TABLE IF NOT EXISTS pruebas(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL, usuario TEXT, participante TEXT NOT NULL,
+            perfil TEXT NOT NULL, ciudad TEXT, version TEXT, unidad_id INTEGER, carro TEXT NOT NULL, precio_sugerido REAL,
+            vendible TEXT NOT NULL, precio_pondria REAL, segundos REAL, dispositivo TEXT, utilidad INTEGER,
+            facilidad INTEGER, comentarios TEXT);
         """)
         # Columnas agregadas después de la primera versión: se añaden sin tocar los datos que ya existen.
         for tabla, cols in COLUMNAS_NUEVAS.items():
@@ -279,7 +287,7 @@ ESTADOS_INV = ["En piso", "Reservada", "Vendida", "Liquidada"]
 LINEAS = ["1001", "Autos OK"]
 CAMPOS_AUTO = ["subtipo", "transmision", "combustible", "traccion", "ciudad", "provincia_placa", "vendedor_tipo",
                "climatizacion", "tapizado", "direccion", "vidrios"]
-TEXTO_UNIDAD = CAMPOS_AUTO + ["vehiculo", "modelo", "version", "placa", "color", "agencia"]
+TEXTO_UNIDAD = CAMPOS_AUTO + ["vehiculo", "modelo", "version", "placa", "color", "agencia", "region"]
 
 
 def _num(v, nombre, obligatorio=True, minimo=0):
@@ -452,20 +460,26 @@ def historial_referencias(uid):
                     LEFT JOIN usuarios u ON u.usuario = r.usuario WHERE unidad_id=? ORDER BY r.id DESC""", (uid,))]
 
 
-def aplicar_precio(uid, usuario, nuevo, sugerido, motivo, tolerancia):
-    """Registra el cambio de precio. Si se aleja del sugerido más de la tolerancia el motivo es obligatorio."""
+def aplicar_precio(uid, usuario, nuevo, sugerido, motivo, tolerancia, minimo=None, maximo=None, caso=None):
+    """Registra el cambio de precio con la banda de negociación de ese día [mínimo, máximo]. Un precio fuera de la
+    banda es una excepción: el motivo es obligatorio y queda pendiente de aprobación. (Sin banda se usa la regla
+    anterior: más de la tolerancia frente al sugerido.)"""
     u = obtener_unidad(uid)
     nuevo = _num(nuevo, "El precio nuevo")
     if nuevo <= 0:
         raise ValueError("El precio nuevo debe ser mayor a cero")
     motivo = (motivo or "").strip() or None
-    if sugerido and abs(nuevo / sugerido - 1) > tolerancia and not motivo:
+    fila = dict(precio_nuevo=nuevo, precio_sugerido=sugerido, precio_minimo=minimo, precio_maximo=maximo)
+    if INV.es_excepcion(fila, tolerancia) and not motivo:
+        if minimo is not None and maximo is not None:
+            raise ValueError(f"El precio queda fuera de la banda de negociación ({INV.usd(minimo)} – {INV.usd(maximo)}): "
+                             f"escribe el motivo (queda como excepción para el comité)")
         raise ValueError(f"El precio se aleja más de {tolerancia * 100:.0f} % del sugerido: escribe el motivo "
                          f"(queda como excepción para el comité)")
     with con() as c:
         c.execute("""INSERT INTO precios_inventario(unidad_id, fecha, precio_anterior, precio_nuevo, precio_sugerido,
-                     motivo, usuario) VALUES (?,?,?,?,?,?,?)""",
-                  (uid, ahora(), u["precio_publicado"], nuevo, sugerido, motivo, usuario))
+                     motivo, usuario, precio_minimo, precio_maximo, caso) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                  (uid, ahora(), u["precio_publicado"], nuevo, sugerido, motivo, usuario, minimo, maximo, caso))
         c.execute("UPDATE inventario SET precio_publicado=?, ultima_revision=? WHERE id=?", (nuevo, _hoy(), uid))
 
 
@@ -487,8 +501,8 @@ def cambios_precio(dias=90):
 
 
 def excepciones_precio(tolerancia, dias=30):
-    """Cambios de precio que se alejaron del sugerido en más de la tolerancia (los revisa el comité)."""
-    return [r for r in cambios_precio(dias) if abs(r["precio_nuevo"] / r["precio_sugerido"] - 1) > tolerancia]
+    """Cambios de precio fuera de la banda de negociación de su día (los revisa el comité)."""
+    return [r for r in cambios_precio(dias) if INV.es_excepcion(r, tolerancia)]
 
 
 def aprobar_excepcion(pid, usuario, aprobar=True):
@@ -508,3 +522,53 @@ def borrar_demo():
         c.executemany("DELETE FROM referencias_mercado WHERE unidad_id=?", [(i,) for i in ids])
         c.execute("DELETE FROM inventario WHERE demo=1")
     return len(ids)
+
+
+# ----------------------------------------------------------------------------- pruebas con usuarios
+def crear_prueba(usuario, q):
+    """Registra una prueba con un evaluador (validación del prototipo). Valida cada campo y devuelve el id."""
+    participante = (q.get("participante") or "").strip()
+    if not participante:
+        raise ValueError("Escribe el nombre o alias del participante")
+    if q.get("perfil") not in INV.PERFILES:
+        raise ValueError("Elige el perfil del participante")
+    if q.get("vendible") not in INV.VENDIBLE:
+        raise ValueError("Indica si el precio es vendible en 30 días (sí, sí con ajuste o no)")
+    if q.get("dispositivo") not in INV.DISPOSITIVOS:
+        raise ValueError("Elige el dispositivo (celular o computadora)")
+    carro = (q.get("carro") or "").strip()
+    uid = q.get("unidad_id")
+    if uid not in (None, ""):
+        carro = carro or obtener_unidad(int(uid))["vehiculo"] or ""
+    if not carro:
+        raise ValueError("Elige o escribe el carro probado")
+    escala = {}
+    for k, nombre in (("utilidad", "La utilidad"), ("facilidad", "La facilidad")):
+        v = _num(q.get(k), nombre, obligatorio=False)
+        if v is not None and not (1 <= v <= 5):
+            raise ValueError(f"{nombre} va de 1 a 5")
+        escala[k] = int(v) if v is not None else None
+    with con() as c:
+        return c.execute("""INSERT INTO pruebas(fecha, usuario, participante, perfil, ciudad, version, unidad_id, carro,
+                         precio_sugerido, vendible, precio_pondria, segundos, dispositivo, utilidad, facilidad, comentarios)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (ahora(), usuario, participante, q["perfil"], (q.get("ciudad") or "").strip() or None,
+                          (q.get("version") or "").strip() or None, int(uid) if uid not in (None, "") else None, carro,
+                          _num(q.get("precio_sugerido"), "El precio sugerido", False), q["vendible"],
+                          _num(q.get("precio_pondria"), "El precio que pondría", False),
+                          _num(q.get("segundos"), "Los segundos", False), q["dispositivo"], escala["utilidad"],
+                          escala["facilidad"], (q.get("comentarios") or "").strip() or None)).lastrowid
+
+
+def listar_pruebas():
+    with con() as c:
+        return [dict(r) for r in c.execute("""SELECT p.*, u.nombre AS nombre_usuario FROM pruebas p
+                    LEFT JOIN usuarios u ON u.usuario = p.usuario ORDER BY p.id DESC""")]
+
+
+def borrar_prueba(pid):
+    with con() as c:
+        if not c.execute("SELECT id FROM pruebas WHERE id=?", (pid,)).fetchone():
+            raise LookupError("Prueba no encontrada")
+        c.execute("DELETE FROM pruebas WHERE id=?", (pid,))
+

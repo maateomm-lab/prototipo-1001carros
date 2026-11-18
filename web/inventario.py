@@ -1,17 +1,21 @@
 """Motor de inventario y precio dinámico (funciones puras, sin servidor ni base de datos).
 
-Principio: el precio NO sube porque se acumuló costo (costo hundido). El costo acumulado define el PISO de
-equilibrio; el precio sugerido lo definen el MERCADO (modelo XGBoost) y los DÍAS EN PISO. Solo se sugiere SUBIR
-cuando el precio publicado está por debajo del rango de mercado.
+Principio (regla v3): el ajuste de precio siempre busca ganar algo. El precio sugerido sale del margen objetivo del
+tramo de días (sobre el costo BASE, para que no suba solo porque pasan los días) con el tope del MERCADO (modelo
+XGBoost o referencia manual), y nunca queda bajo el piso de ganancia (costo acumulado + margen mínimo) mientras el
+mercado lo permita. Solo se sugiere un precio con pérdida cuando el costo acumulado ya supera lo que paga el mercado.
 
 Una unidad es un dict con: marca, familia, version, modelo, anio, km, fecha_ingreso, costo_compra,
 reacondicionamiento, precio_publicado, ultima_revision (y los campos del auto que usa el modelo).
 """
+import math
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 DIAS_CURVA = 210            # largo mínimo de la curva de mercado (una sola predicción en lote)
+FECHA_AVISOS = (10, 1)      # mes y día de los avisos de Patio Tuerca con que se entrenó el modelo (1-oct del año de referencia)
+DEPRECIACION_RESPALDO = 0.06    # caída anual que se usa si el modelo, por ruido, da más valor a un año más de edad
 CAMPOS_MODELO = ["subtipo", "transmision", "combustible", "traccion", "ciudad", "provincia_placa", "vendedor_tipo",
                  "climatizacion", "tapizado", "direccion", "vidrios"]
 
@@ -31,25 +35,40 @@ COSTOS_INFO = dict(
 )
 
 PARAMS_DEF = dict(
+    # Costo de esperar = solo el costo de capital (Entrega 1): 12 % × (compra + reacondicionamiento) ÷ 365.
+    # Seguro, patio y lavado NO están en la Entrega 1: quedan en 0 y solo cuentan si se activa el interruptor
+    # (análisis de sensibilidad).
     tasa_capital_anual=0.12,        # costo del capital inmovilizado (dato de la empresa)
-    tasa_seguro_anual=0.02,         # seguro (supuesto)
-    costo_espacio_diario=2.0,       # USD por día de patio (supuesto)
-    costo_lavado_diario=1.0,        # USD por día de lavado y mantenimiento (supuesto)
+    costos_adicionales=False,       # interruptor: ¿contar seguro, patio y lavado?
+    tasa_seguro_anual=0.0,          # seguro (supuesto; solo con el interruptor activado)
+    costo_espacio_diario=0.0,       # USD por día de patio (supuesto; solo con el interruptor activado)
+    costo_lavado_diario=0.0,        # USD por día de lavado y mantenimiento (supuesto; solo con el interruptor activado)
     fuentes=dict(tasa_capital_anual="empresa", tasa_seguro_anual="supuesto", costo_espacio_diario="supuesto",
                  costo_lavado_diario="supuesto"),     # de dónde sale cada valor: "empresa" o "supuesto"
-    piso_margen=0.08,               # margen mínimo sobre el costo acumulado (hasta el día tramos[2])
     dias_revision=7,                # cada cuántos días se debe revisar el precio
     tramos=[30, 60, 90, 120],       # límites de los tramos: 0–30 / 31–60 / 61–90 / 91–120 / >120
-    ajustes=[0.0, 0.0, -0.03, -0.06, -0.08],   # ajuste vs mercado por tramo (el 1.º usa la regla de la banda)
+    # regla de precio v3 (márgenes por antigüedad de la empresa y prototipo del grupo)
+    margen_minimo=0.03,             # piso de ganancia = costo acumulado × (1 + margen mínimo)
+    margenes=[0.12, 0.10, 0.09, 0.07, 0.05],        # margen objetivo sobre el costo base, por tramo
+    topes=[0.03, 0.0, -0.02, -0.04, -0.06],         # tope del precio frente al valor de mercado, por tramo
+    stock_umbrales=[3, 5],          # unidades en piso de la misma familia desde las que baja el margen objetivo
+    stock_ajustes=[0.01, 0.02],     # cuánto baja (1 y 2 puntos)
+    banda_negociacion=0.03,         # mínimo y máximo alrededor del precio objetivo
+    dias_espera=232,                # "camino 2": promedio de días de las unidades que pasan de 120 (Entregable 1)
+    margen_espera=0.032,            # margen con que se venden esas unidades (Entregable 1)
     tolerancia_banda=0.03,          # holgura alrededor de [bajo50, alto50]
-    tolerancia_excepcion=0.03,      # si el precio aplicado se aleja más del sugerido hay que justificarlo
+    tolerancia_excepcion=0.03,      # solo para cambios anteriores a la v3 (sin banda guardada)
     # objetivos del caso (Tablero de objetivos)
-    base_dias_promedio=75, meta_dias_promedio=65,        # días promedio en piso
-    base_pct_mas_120=0.178, meta_pct_mas_120=0.09,       # % de unidades en piso con más de 120 días
-    meta_pct_en_regla=1.0,                               # % de cambios de precio dentro de la regla
-    meta_beneficio_anual=367080.0,                       # USD al año (margen + costo de capital evitado)
+    # metas del business case: línea base, meta 2028 (la que se vigila hoy) y meta 2029
+    base_dias_promedio=75, meta_dias_2028=68, meta_dias_2029=61,           # días promedio en inventario
+    meta_dias_empresa=65,                                                  # referencia: meta de la empresa
+    base_pct_mas_120=0.178, meta_pct_mas_120_2028=0.133, meta_pct_mas_120_2029=0.089,   # % de unidades con más de 120 días
+    meta_pct_en_regla_2028=0.90, meta_pct_en_regla_2029=1.0,               # % de cambios de precio dentro de la regla
+    meta_beneficio_2028=183540.0, meta_beneficio_2029=367080.0,            # USD al año (2028: comprometido)
 )
 VENTANA_OBJETIVOS = 90      # días hacia atrás que miran los objetivos
+# Valores que se sugieren al activar los costos adicionales (supuestos de la v3; no están en la Entrega 1)
+ADICIONALES_SENSIBILIDAD = dict(tasa_seguro_anual=0.02, costo_espacio_diario=2.0, costo_lavado_diario=1.0)
 
 
 # ----------------------------------------------------------------------------- utilidades
@@ -81,28 +100,47 @@ def validar_parametros(q):
     # Parámetros guardados con la versión anterior: costo_capital_diario y costo_operativo_diario ya no existen
     # (se ignoran) y una tasa de capital vacía vuelve al valor por defecto; el costo ahora se calcula por unidad.
     q = {k: v for k, v in (q or {}).items() if k in PARAMS_DEF and not (k == "tasa_capital_anual" and v in (None, ""))}
+    if "costos_adicionales" not in q:       # parámetros guardados antes de la v4: seguro, patio y lavado vuelven a 0 (Entrega 1)
+        for k in ("tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario"):
+            q.pop(k, None)
     p = {**PARAMS_DEF, **q}
+    p["costos_adicionales"] = p["costos_adicionales"] in (True, 1, "1", "true", "True")
     try:
-        for k in ["tasa_capital_anual", "tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario", "piso_margen",
-                  "tolerancia_banda", "tolerancia_excepcion", "base_dias_promedio", "meta_dias_promedio",
-                  "base_pct_mas_120", "meta_pct_mas_120", "meta_pct_en_regla", "meta_beneficio_anual"]:
+        for k in ["tasa_capital_anual", "tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario", "margen_minimo",
+                  "banda_negociacion", "margen_espera",
+                  "tolerancia_banda", "tolerancia_excepcion", "base_dias_promedio", "meta_dias_2028", "meta_dias_2029",
+                  "meta_dias_empresa", "base_pct_mas_120", "meta_pct_mas_120_2028", "meta_pct_mas_120_2029",
+                  "meta_pct_en_regla_2028", "meta_pct_en_regla_2029", "meta_beneficio_2028", "meta_beneficio_2029"]:
             p[k] = float(p[k])
             if p[k] < 0:
                 raise ValueError
-        for k in ["tasa_capital_anual", "tasa_seguro_anual", "base_pct_mas_120", "meta_pct_mas_120", "meta_pct_en_regla"]:
+        for k in ["tasa_capital_anual", "tasa_seguro_anual", "base_pct_mas_120", "meta_pct_mas_120_2028",
+                  "meta_pct_mas_120_2029", "meta_pct_en_regla_2028", "meta_pct_en_regla_2029",
+                  "margen_minimo", "banda_negociacion", "margen_espera"]:
             if p[k] > 1:
                 raise ValueError(f"{k.replace('_', ' ').capitalize()} debe ir como porcentaje entre 0 y 100")
         f = {**PARAMS_DEF["fuentes"], **(p.get("fuentes") or {})}
         p["fuentes"] = {k: (f[k] if f[k] in ("empresa", "supuesto") else "supuesto") for k in PARAMS_DEF["fuentes"]}
         p["dias_revision"] = int(p["dias_revision"])
         p["tramos"] = [int(x) for x in p["tramos"]]
-        p["ajustes"] = [float(x) for x in p["ajustes"]]
+        p["margenes"] = [float(x) for x in p["margenes"]]
+        p["topes"] = [float(x) for x in p["topes"]]
+        p["stock_umbrales"] = [int(x) for x in p["stock_umbrales"]]
+        p["stock_ajustes"] = [float(x) for x in p["stock_ajustes"]]
+        p["dias_espera"] = int(p["dias_espera"])
     except (TypeError, ValueError) as e:
         raise ValueError(str(e) if str(e).endswith("100") else "Los parámetros deben ser números válidos (no negativos)")
     if len(p["tramos"]) != 4 or p["tramos"] != sorted(set(p["tramos"])) or p["tramos"][0] < 1:
         raise ValueError("Los límites de tramo deben ser 4 días distintos y crecientes")
-    if len(p["ajustes"]) != 5 or any(a > 0.5 or a < -0.9 for a in p["ajustes"]):
-        raise ValueError("Los ajustes por tramo deben ser 5 porcentajes razonables")
+    if len(p["margenes"]) != 5 or any(a < 0 or a > 1 for a in p["margenes"]):
+        raise ValueError("Los márgenes objetivo deben ser 5 porcentajes entre 0 y 100")
+    if len(p["topes"]) != 5 or any(a > 0.5 or a < -0.9 for a in p["topes"]):
+        raise ValueError("Los topes frente al mercado deben ser 5 porcentajes razonables")
+    if len(p["stock_umbrales"]) != 2 or p["stock_umbrales"] != sorted(set(p["stock_umbrales"])) or p["stock_umbrales"][0] < 2 \
+            or len(p["stock_ajustes"]) != 2 or any(a < 0 or a > 0.5 for a in p["stock_ajustes"]):
+        raise ValueError("El ajuste por stock necesita 2 cantidades crecientes (desde 2) y 2 porcentajes")
+    if p["dias_espera"] <= p["tramos"][3]:
+        raise ValueError("Los días del camino de espera deben ser más que el último tramo")
     if p["dias_revision"] < 1:
         raise ValueError("Los días de revisión deben ser al menos 1")
     return p
@@ -134,12 +172,16 @@ def _base_costo(u):
 def _componentes_auto(u, p):
     """Costo diario de cada componente según los parámetros: depende del valor de cada carro."""
     base = _base_costo(u)
-    return dict(capital=base * p["tasa_capital_anual"] / 365, seguro=base * p["tasa_seguro_anual"] / 365,
-                espacio=p["costo_espacio_diario"], lavado=p["costo_lavado_diario"])
+    on = bool(p.get("costos_adicionales"))        # seguro, patio y lavado solo cuentan con el interruptor activado
+    # el costo diario se redondea a centavos, como en la Entrega 1 (USD 5,17 por día, no 5,1666…)
+    return dict(capital=round(base * p["tasa_capital_anual"] / 365, 2),
+                seguro=round(base * p["tasa_seguro_anual"] / 365, 2) if on else 0.0,
+                espacio=p["costo_espacio_diario"] if on else 0.0, lavado=p["costo_lavado_diario"] if on else 0.0)
 
 
 def costo_diario(u, p):
-    """USD por día de la unidad: capital + seguro (proporcionales a lo invertido) + espacio + lavado.
+    """USD por día de la unidad: solo el capital (12 % × (compra + reacondicionamiento) ÷ 365); seguro, patio y lavado se
+    suman únicamente con los costos adicionales activados.
     La unidad puede traer su propio total (costo_diario_manual) o sobrescribir un componente (costo_<x>_manual)."""
     if u.get("costo_diario_manual") is not None:
         return float(u["costo_diario_manual"])
@@ -160,6 +202,8 @@ def desglose_costo(u, p, dias=0):
     for k in COMPONENTES:
         manual = u.get(f"costo_{k}_manual")
         par = PARAM_DE[k]
+        if k != "capital" and manual is None and not auto[k]:      # en 0 (Entrega 1) no aparecen en el desglose
+            continue
         if k in ("capital", "seguro"):
             formula = f"{pct_txt(p[par])} × {de_que} ÷ 365 = {usd2(auto[k])}/día"
         else:
@@ -179,29 +223,142 @@ def desglose_costo(u, p, dias=0):
 # ----------------------------------------------------------------------------- mercado en el tiempo
 def curva_mercado(art, u, hasta=DIAS_CURVA):
     """Valor de mercado (y rango probable) de la unidad para cada día d = 0..hasta desde su ingreso.
-    La edad del auto avanza con la fecha (edad fraccionaria) y el km queda fijo (el carro está parado).
-    Una sola predicción para toda la curva; luego se suaviza para que nunca suba con el tiempo."""
+
+    El modelo aprendió la antigüedad en años enteros (edad = año de los avisos − año del carro), así que predecir
+    con edad fraccionaria daba una línea plana. Aquí se predice con la edad entera y con la siguiente (mismo km: el
+    carro está parado) y cada día se interpola en escala logarítmica:
+        mercado(d) = exp((1 − f) × ln V(e0) + f × ln V(e0 + 1)),  e = edad en años ese día, e0 = floor(e), f = e − e0
+    La edad se mide desde la fecha de los avisos con que se entrenó el modelo (FECHA_AVISOS): ese día el valor es
+    exactamente el del cotizador, y de ahí en adelante baja un poco cada día. Igual para bajo50 y alto50. Si por
+    ruido V(e0 + 1) > V(e0), se usa V(e0) × (1 − 6 %) (DEPRECIACION_RESPALDO). Al final se suaviza para que nunca suba."""
     import numpy as np
     import pandas as pd
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "xgboost"))
     import pricing_ml as P
 
-    base = (_fecha(u["fecha_ingreso"]) - date(int(u["anio"]), 1, 1)).days
+    k = max(P.ANIO_REF - int(u["anio"]), 0)                     # edad con que el modelo ve hoy a este carro
+    desde_avisos = (_fecha(u["fecha_ingreso"]) - date(P.ANIO_REF, *FECHA_AVISOS)).days
     dias = np.arange(hasta + 1)
-    edad = np.clip((base + dias) / 365, 0, None)
+    e = np.clip(k + (desde_avisos + dias) / 365, 0, None)
+    e0 = np.floor(e).astype(int)
+    f = e - e0
+    edades = np.arange(e0.min(), e0.max() + 2)                  # edades enteras necesarias (2 o 3 filas)
     km, pn = u.get("km"), u.get("pn_con_iva")
     df = pd.DataFrame(dict(marca=u["marca"], familia=u["familia"], version=u.get("version"), modelo=u.get("modelo"),
-                           **{c: u.get(c) for c in CAMPOS_MODELO}, edad=edad,
+                           **{c: u.get(c) for c in CAMPOS_MODELO}, edad=edades.astype(float),
                            km=km if km is not None else np.nan,
-                           km_anio=(km / np.maximum(edad, 1)) if km is not None else np.nan,
+                           km_anio=(km / np.maximum(edades, 1)) if km is not None else np.nan,
                            cilindraje=u.get("cilindraje") or np.nan,
                            pn_sin_iva=(pn / P.IVA) if pn else np.nan))
     X = P.matriz(df, art["cats"])
-    mu = art["modelo"].predict(X)
-    q50 = art["q50"] * P.sigma(art["dificultad"], X)
-    c = pd.DataFrame(dict(d=dias, mercado=np.exp(mu), bajo50=np.exp(mu - q50), alto50=np.exp(mu + q50)))
+    mu = np.asarray(art["modelo"].predict(X), dtype=float)
+    q50 = np.asarray(art["q50"] * P.sigma(art["dificultad"], X), dtype=float)
+    for j in range(1, len(mu)):                                 # un año más nunca vale más
+        if mu[j] > mu[j - 1]:
+            mu[j] = mu[j - 1] + math.log(1 - DEPRECIACION_RESPALDO)
+    i = e0 - edades[0]
+    interp = lambda a: (1 - f) * a[i] + f * a[i + 1]            # interpolación de logaritmos
+    c = pd.DataFrame(dict(d=dias, mercado=np.exp(interp(mu)), bajo50=np.exp(interp(mu - q50)),
+                          alto50=np.exp(interp(mu + q50))))
     c = P._suavizar_decreciente(c, "d", ["mercado", "bajo50", "alto50"])
-    return escalar_curva(c.to_dict("records"), u.get("mercado_manual"))
+    modelo = c.to_dict("records")
+    ref = referencia_unidad(u)
+    if ref["tipo"] == "apendice":                       # referencia de la Entrega 1: el modelo queda como segunda opinión
+        return curva_apendice(modelo, ref["p"])
+    return escalar_curva(modelo, u.get("mercado_manual"))    # referencia manual o respaldo del modelo
+
+
+# ----------------------------------------------------------------------------- referencia de mercado (Apéndice E, Entrega 1)
+# Mediana, por familia y año, de los anuncios de Patiotuerca y Autocor del 7-oct-2026 (datos_caso/reconstruir_referencias.py).
+# Prioridad: 1) referencia manual de la unidad, 2) Apéndice E, 3) modelo XGBoost como respaldo.
+REF_ARCHIVO = Path(__file__).resolve().parent / "datos_caso" / "referencias_apendice_e.json"
+MARCAS_REF = {"COROLLA": ("toyota",), "FORTUNER": ("toyota",), "HILUX": ("toyota",), "RAV4": ("toyota",), "YARIS": ("toyota",),
+              "RUSH": ("toyota",), "RAIZE": ("toyota",), "SPORTAGE": ("kia",), "2008": ("peugeot",), "SWIFT": ("suzuki",),
+              "D-MAX": ("chevrolet", "isuzu")}      # marcas del catálogo que corresponden a cada familia del Apéndice E
+_REF_CACHE = {}
+
+
+def tabla_referencias():
+    """{'COROLLA': {'2023': {'p': 21800, 'n': 1}, ...}, ...} (vacía si falta el archivo)."""
+    if "t" not in _REF_CACHE:
+        import json
+        _REF_CACHE["t"] = json.loads(REF_ARCHIVO.read_text(encoding="utf-8"))["ref"] if REF_ARCHIVO.exists() else {}
+    return _REF_CACHE["t"]
+
+
+def _norm_fam(s):
+    import re
+    return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
+
+
+def referencia_apendice(u, tabla=None):
+    """Referencia del Apéndice E para la unidad, o None si la familia no está en la muestra.
+    Año exacto -> su mediana. Si no, el año más cercano ajustado 6 % por año de diferencia (más nuevo que el disponible:
+    p ÷ 0,94^dif; más viejo: p × 0,94^dif), redondeado a USD 10. Si hay empate de cercanía, gana el año más viejo
+    (igual que la función referencia() del prototipo del compañero). Las versiones 'cross' (Corolla Cross, Yaris Cross)
+    son SUV, no el sedán de la muestra: quedan fuera."""
+    tabla = tabla_referencias() if tabla is None else tabla
+    if "cross" in str(u.get("version") or "").lower():
+        return None
+    texto = str(u.get("familia") or "").split(" ", 1)[-1]
+    clave = next((k for k in tabla if _norm_fam(k) == _norm_fam(texto)), None)
+    if clave is None or str(u.get("marca") or "").lower() not in MARCAS_REF.get(clave, (str(u.get("marca") or "").lower(),)):
+        return None
+    por_anio = tabla[clave]
+    anio = int(u["anio"])
+    if str(anio) in por_anio:
+        d = por_anio[str(anio)]
+        return dict(tipo="apendice", p=float(d["p"]), n=int(d["n"]), exacta=True, anio_base=anio, familia=clave)
+    base = min(sorted(int(a) for a in por_anio), key=lambda a: abs(a - anio))
+    d, dif = por_anio[str(base)], abs(base - anio)
+    f = (1 - DEPRECIACION_RESPALDO) ** dif
+    p = d["p"] * f if base > anio else d["p"] / f
+    return dict(tipo="apendice", p=float(_r10(p)), n=int(d["n"]), exacta=False, anio_base=base, familia=clave)
+
+
+def referencia_unidad(u, tabla=None):
+    """Qué referencia de mercado usa la unidad y de dónde sale (siempre trae 'tipo' y 'fuente')."""
+    if u.get("mercado_manual") not in (None, ""):
+        return dict(tipo="manual", p=float(u["mercado_manual"]), fuente="Manual")
+    r = referencia_apendice(u, tabla)
+    if r:
+        r["fuente"] = (f"Apéndice E · mediana de {r['n']} anuncio{'' if r['n'] == 1 else 's'}" if r["exacta"]
+                       else f"Apéndice E · ajustado desde {r['anio_base']} (6 % anual)")
+        r["nivel"] = nivel_apendice(r)
+        return r
+    return dict(tipo="modelo", fuente="Modelo (respaldo)",
+                etiqueta="Estimación del modelo (este modelo no está en la muestra del Apéndice E)")
+
+
+def nivel_apendice(r):
+    """Confianza de una referencia del Apéndice E: alta con 5 o más anuncios del año exacto, media con 2–4, baja con 1
+    anuncio o con año ajustado."""
+    if not r["exacta"] or r["n"] <= 1:
+        return "baja"
+    return "alta" if r["n"] >= 5 else "media"
+
+
+def texto_confianza_apendice(r):
+    n = r["n"]
+    if r["exacta"]:
+        base = f"{n} anuncio{'' if n == 1 else 's'} del año exacto en la muestra del Apéndice E"
+    else:
+        base = f"no hay anuncios del año en el Apéndice E; se ajustó desde {r['anio_base']} (6 % anual)"
+    nivel = r["nivel"] if "nivel" in r else nivel_apendice(r)
+    if nivel == "alta":
+        return f"Confianza alta: {base}."
+    return f"Confianza {nivel}: {base}." + (" Revise los comparables y fije una referencia manual." if nivel == "baja" else "")
+
+
+def curva_apendice(modelo, p):
+    """mercado(d) = referencia × 0,94^(d/365) (la misma depreciación de 6 % anual de la Entrega 1). El rango probable
+    conserva la proporción que da el modelo ese día; el valor del modelo queda en 'modelo' como segunda opinión."""
+    out = []
+    for c in modelo:
+        m = p * (1 - DEPRECIACION_RESPALDO) ** (c["d"] / 365)
+        out.append({**c, "modelo": c["mercado"], "modelo_bajo50": c["bajo50"], "modelo_alto50": c["alto50"], "mercado": m,
+                    "bajo50": m * c["bajo50"] / c["mercado"], "alto50": m * c["alto50"] / c["mercado"]})
+    return out
 
 
 def escalar_curva(curva, mercado_manual):
@@ -241,38 +398,97 @@ def explicar_confianza(nivel, ancho, n, fuera, tiene_pn, manual, limite, n_anio=
     return dict(motivos=motivos, texto=texto)
 
 
-# ----------------------------------------------------------------------------- precio sugerido
-def _sugerido_base(d, c, costo, p, pub=None):
-    """Precio sugerido del día d. Sin precio publicado (pub=None) es la curva de referencia por tramo.
-    Con precio publicado aplica la regla de 'mantener / subir' del primer tramo y de la banda."""
-    t, tol = tramo(d, p), p["tolerancia_banda"]
-    m, lo, hi = c["mercado"], c["bajo50"], c["alto50"]
-    if t == 0:
-        if pub is None or pub < lo * (1 - tol):
-            s = m
-        elif pub > hi * (1 + tol):
-            s = hi
-        else:
-            s = pub                                     # dentro de la banda: mantener
-    else:
-        s = m * (1 + p["ajustes"][t])
-    if d <= p["tramos"][2]:
-        piso = costo * (1 + p["piso_margen"])           # hasta 90 días: costo + margen
-    elif d <= p["tramos"][3]:
-        piso = costo                                    # de 91 a 120: equilibrio
-    else:
-        piso = None                                     # más de 120: se permite liquidar bajo costo
-    return (max(s, piso) if piso is not None else s), piso
+# ----------------------------------------------------------------------------- precio sugerido (regla v3)
+# El ajuste siempre busca ganar algo: el precio sugerido nunca queda bajo el piso de ganancia (costo acumulado +
+# margen mínimo) mientras el mercado lo permita. Solo se sugiere un precio con pérdida cuando el costo acumulado ya
+# supera lo que paga el mercado.
+CASOS = dict(con_ganancia="Con ganancia", ganancia_minima="Ganancia mínima", ganancia_reducida="Ganancia reducida",
+             perdida_inevitable="Pérdida inevitable")
+ESTADOS_TRAMO = [("verde", "Normal"), ("verde", "Normal"), ("amarillo", "Ventana de venta"), ("naranja", "Alerta"),
+                 ("rojo", "Crítico")]
+ACCIONES_TRAMO = ["Precio de lanzamiento. Publicar y medir visitas y leads.",
+                  "Primer ajuste. Revisar fotos, descripción y posición en la web.",
+                  "Ventana objetivo. Ajustar el precio hoy y destacar la unidad.",
+                  "Llevar al comité de esta semana antes de cruzar los 120 días.",
+                  "Vender con el piso de ganancia; evaluar traslado de agencia o canal alterno."]
 
 
-def serie(u, curva, p, hasta=None):
-    """Una fila por día para el gráfico: costo acumulado, mercado, banda y sugerido de referencia."""
+def _r10(x):
+    return math.floor(x / 10 + 0.5) * 10
+
+
+def _abajo10(x):
+    return math.floor(x / 10 + 1e-9) * 10
+
+
+def _arriba10(x):
+    return math.ceil(x / 10 - 1e-9) * 10
+
+
+def ajuste_stock(n, p):
+    """Puntos de margen que se restan cuando hay varias unidades en piso de la misma familia (3 o más, 5 o más)."""
+    aj = 0.0
+    for umbral, a in zip(p["stock_umbrales"], p["stock_ajustes"]):
+        if n >= umbral:
+            aj = a
+    return aj
+
+
+def precio_regla(u, d, c, p, stock=1):
+    """Regla de precio para el día d (c = fila de la curva de mercado de ese día; stock = unidades en piso de la
+    misma familia). Devuelve el precio (redondeado a USD 10), el caso que aplicó y la banda de negociación.
+
+      objetivo_margen = costo_base × (1 + margen del tramo − ajuste por stock)   (sobre el costo BASE: el precio
+                        no sube solo porque pasan los días)
+      tope_mercado    = mercado(d) × (1 + tope del tramo)
+      1. candidato = min(objetivo_margen, tope_mercado)
+      2. candidato ≥ piso_ganancia            -> con_ganancia:       precio = candidato
+      3. tope_mercado ≥ piso_ganancia         -> ganancia_minima:    precio = piso_ganancia
+      4. mercado ≥ equilibrio                 -> ganancia_reducida:  precio = max(equilibrio, min(piso, mercado))
+      5. mercado < equilibrio                 -> perdida_inevitable: precio = tope_mercado
+    (Si el mercado queda bajo el equilibrio pero el tope del primer tramo, +3 %, todavía lo alcanza, se vende al
+    tope sin pérdida: cuenta como ganancia reducida.)"""
+    t = tramo(d, p)
+    base, eq = _base_costo(u), costo_acumulado(u, d, p)
+    piso = eq * (1 + p["margen_minimo"])
+    aj = ajuste_stock(stock, p)
+    objetivo = base * (1 + p["margenes"][t] - aj)
+    m = c["mercado"]
+    tope = m * (1 + p["topes"][t])
+    cand = min(objetivo, tope)
+    b = p["banda_negociacion"]
+    if cand >= piso:
+        caso, precio = "con_ganancia", _r10(cand)
+        if precio < piso:
+            precio = _arriba10(piso)
+        minimo = _arriba10(max(precio * (1 - b), piso))
+    elif tope >= piso:
+        caso, precio = "ganancia_minima", _arriba10(piso)
+        minimo = precio
+    elif max(m, tope) >= eq:
+        caso, precio = "ganancia_reducida", _r10(max(eq, min(piso, m if m >= eq else tope)))
+        if precio < eq:
+            precio = _arriba10(eq)
+        minimo = _arriba10(eq)
+    else:
+        caso, precio = "perdida_inevitable", _r10(tope)
+        minimo = precio                                 # sin margen para negociar sin el comité
+    minimo = min(minimo, precio)
+    maximo = max(precio, _abajo10(min(precio * (1 + b), tope)))
+    return dict(tramo=t, caso=caso, precio=float(precio), minimo=float(minimo), maximo=float(maximo), equilibrio=eq,
+                piso_ganancia=piso, objetivo_margen=objetivo, tope_mercado=tope, margen_tramo=p["margenes"][t],
+                tope_tramo=p["topes"][t], ajuste_stock=aj, mercado=m, limita="margen" if objetivo <= tope else "mercado")
+
+
+def serie(u, curva, p, hasta=None, stock=1):
+    """Una fila por día para el gráfico: equilibrio (costo acumulado), piso de ganancia, mercado, banda y precio de
+    la regla (con el objetivo por margen y el tope de mercado como series secundarias)."""
     filas = []
     for c in curva[: (hasta + 1) if hasta else None]:
-        d = c["d"]
-        costo = costo_acumulado(u, d, p)
-        s, _ = _sugerido_base(d, c, costo, p)
-        filas.append(dict(d=d, costo=costo, mercado=c["mercado"], bajo50=c["bajo50"], alto50=c["alto50"], sugerido=s,
+        r = precio_regla(u, c["d"], c, p, stock)
+        filas.append(dict(d=c["d"], costo=r["equilibrio"], piso=r["piso_ganancia"], mercado=c["mercado"],
+                          bajo50=c["bajo50"], alto50=c["alto50"], sugerido=r["precio"], minimo=r["minimo"],
+                          maximo=r["maximo"], objetivo=r["objetivo_margen"], tope=r["tope_mercado"], caso=r["caso"],
                           modelo=c.get("modelo")))
     return filas
 
@@ -285,88 +501,129 @@ def dia_equilibrio(u, curva, p):
     return None
 
 
-def evaluar(u, curva, p, hoy=None, n_comparables=None, conf=None):
+def es_excepcion(c, tolerancia):
+    """¿El cambio de precio c quedó fuera de la regla? Fuera de la banda [mínimo, máximo] que tenía ese día; los
+    cambios anteriores a la v3 (sin banda guardada) usan la regla vieja: más de la tolerancia frente al sugerido."""
+    if c.get("precio_minimo") is not None and c.get("precio_maximo") is not None:
+        return not (c["precio_minimo"] - 0.5 <= c["precio_nuevo"] <= c["precio_maximo"] + 0.5)
+    return bool(c.get("precio_sugerido")) and abs(c["precio_nuevo"] / c["precio_sugerido"] - 1) > tolerancia
+
+
+def segunda_opinion(ref, mercado, modelo):
+    """Compara el valor del modelo con la referencia usada. Solo aplica cuando la referencia viene del Apéndice E o es manual."""
+    if ref is None or ref["tipo"] == "modelo" or not modelo or not mercado:
+        return None
+    dif = modelo / mercado - 1
+    return dict(valor=modelo, dif=dif, aviso=abs(dif) > 0.10,
+                texto=f"El modelo estima {usd(modelo)} ({abs(dif) * 100:.0f} % de diferencia)"
+                      + (" · supera 10 %: revise la referencia" if abs(dif) > 0.10 else ""))
+
+
+def evaluar(u, curva, p, hoy=None, n_comparables=None, conf=None, stock=1, ref=None):
     """Todos los cálculos de una unidad para el día de hoy.
     conf: confianza del valor de mercado ({'nivel', 'texto', ...}); con confianza baja y sin referencia manual el
-    semáforo no puede ser verde y la recomendación lleva el aviso."""
+    semáforo no puede ser verde y la recomendación lleva el aviso.
+    stock: unidades en piso de la misma familia (contando esta)."""
     hoy = _fecha(hoy or date.today())
     d = dias_en_piso(u, hoy)
     c = curva[min(d, len(curva) - 1)]
     pub = u["precio_publicado"]
-    tol, t = p["tolerancia_banda"], tramo(d, p)
-    costo = costo_acumulado(u, d, p)
+    tol = p["tolerancia_banda"]
+    r = precio_regla(u, d, c, p, stock)
+    t, caso, s, eq, piso = r["tramo"], r["caso"], r["precio"], r["equilibrio"], r["piso_ganancia"]
+    minimo, maximo = r["minimo"], r["maximo"]
     m, lo, hi = c["mercado"], c["bajo50"], c["alto50"]
+    base, cd, mm = _base_costo(u), costo_diario(u, p), p["margen_minimo"]
+    nombre_t = nombres_tramos(p)[t]
 
-    # Subir solo si está bajo el rango de mercado Y bajo el objetivo de su tramo: un precio de liquidación (-8 %)
-    # queda bajo la banda a propósito y no debe provocar una recomendación de subir.
-    base = min(lo, m * (1 + p["ajustes"][t])) if t > 0 else lo
-    subir = pub < base * (1 - tol)
-    s, piso = _sugerido_base(d, c, costo, p, pub)
-    if subir:
-        s = max(s, base) if piso is None else max(s, base, piso)
-    else:
-        s = min(s, pub)                                 # no se sube el precio si ya está dentro del mercado
-    dentro = lo * (1 - tol) <= pub <= hi * (1 + tol)
+    dentro = lo * (1 - tol) <= pub <= hi * (1 + tol)             # frente al rango probable de mercado
+    en_banda = minimo - 0.5 <= pub <= maximo + 0.5               # frente a la banda de negociación de la regla
     ult = _fecha(u.get("ultima_revision") or u["fecha_ingreso"])
     vencida = (hoy - ult).days > p["dias_revision"]
 
     de = dia_equilibrio(u, curva, p)
-    util_pub, util_sug = pub - costo, s - costo
+    util_pub, util_sug = pub - eq, s - eq
     d30 = min(d + 30, len(curva) - 1)
-    s30, _ = _sugerido_base(d30, curva[d30], costo_acumulado(u, d30, p), p)
-    util_espera = min(s30, s) - costo_acumulado(u, d30, p)
-    perdida_espera = util_sug - util_espera             # lo que se pierde (o gana) por esperar 30 días más
+    r30 = precio_regla(u, d30, curva[d30], p, stock)
+    util_espera = r30["precio"] - r30["equilibrio"]              # utilidad si se espera 30 días y se vende a la regla
 
-    dif = pub / s - 1
-    if subir:
+    # --- explicación del caso, en una frase
+    if caso == "con_ganancia":
+        if r["limita"] == "margen":
+            frase = (f"El tramo {nombre_t} días pide {pct_txt(r['margen_tramo'])} sobre el costo"
+                     + (f" (menos {r['ajuste_stock'] * 100:g} punto{'' if r['ajuste_stock'] == 0.01 else 's'} porque hay "
+                        f"{stock} unidades de la misma familia)" if r["ajuste_stock"] else "")
+                     + f": deja {usd(util_sug)} sobre el costo acumulado.")
+        else:
+            frase = (f"Manda el tope de mercado del tramo {nombre_t} días ({r['tope_tramo'] * 100:+.0f} % sobre {usd(m)}): "
+                     f"deja {usd(util_sug)} sobre el costo acumulado.").replace("+0 %", "0 %")
+    elif caso == "ganancia_minima":
+        frase = f"No se baja de {usd(s)}: es el costo acumulado ({usd(eq)}) más {pct_txt(mm)} de margen mínimo."
+    elif caso == "ganancia_reducida":
+        frase = (f"El mercado ({usd(m)}) ya no alcanza para el margen mínimo de {pct_txt(mm)}: vender a {usd(s)} deja "
+                 f"{usd(util_sug)}, sin pérdida.")
+    else:
+        frase = (f"El costo acumulado ({usd(eq)}) ya supera el valor de mercado ({usd(m)}): vender hoy pierde "
+                 f"{usd(-util_sug)}; esperar 30 días más perdería unos {usd(-util_espera)}.")
+
+    # --- recomendación frente al precio publicado
+    if pub < s and not en_banda:
         rec = "Subir"
-        texto = (f"Está {abs(pub / lo - 1) * 100:.0f} % bajo el rango de mercado ({usd(lo)} – {usd(hi)}); "
-                 f"subir a {usd(s)}.")
-    elif dif > tol:
-        rec = "Liquidar" if t == len(p["tramos"]) else "Bajar"
-        sobre = f"está {(pub / m - 1) * 100:.0f} % sobre el mercado" if pub > m * (1 + tol) \
-            else f"el tramo {nombres_tramos(p)[t]} días pide {p['ajustes'][t] * 100:.0f} % vs mercado"
-        texto = f"Lleva {d} días y {sobre}; bajar a {usd(s)}."
-        if rec == "Liquidar":
-            texto = f"Lleva {d} días (más de {p['tramos'][3]}); liquidar a {usd(s)}. " + \
-                (f"Pérdida de {usd(-util_sug)} sobre el costo acumulado; " if util_sug < 0 else
-                 f"Utilidad de {usd(util_sug)}; ") + \
-                f"esperar 30 días más {'costaría ' + usd(perdida_espera) + ' adicionales' if perdida_espera > 0 else 'no mejora el resultado'}."
+        por = "bajo el rango de mercado" if pub < lo * (1 - tol) else \
+            "bajo el piso de ganancia" if pub < piso and caso != "perdida_inevitable" else "bajo el mínimo de la banda"
+        texto = f"Lleva {d} días y el publicado ({usd(pub)}) está {por}; subir a {usd(s)}. {frase}"
+    elif pub > maximo + 0.5:
+        rec = "Liquidar" if caso == "perdida_inevitable" else "Bajar"
+        texto = (f"Lleva {d} días; vender a {usd(s)}. {frase}" if rec == "Liquidar" else
+                 f"Lleva {d} días y el publicado ({usd(pub)}) supera el máximo de la banda ({usd(maximo)}); bajar a {usd(s)}. {frase}")
     else:
         rec = "Mantener"
-        if pub < costo:
-            texto = f"El precio publicado ya está bajo el costo acumulado ({usd(costo)}); no bajar más y cerrar la venta."
-        elif t == 0 and dentro:
-            texto = f"Lleva {d} días y está dentro del rango de mercado; mantener {usd(pub)}."
-        else:
-            texto = f"Lleva {d} días y el precio está alineado con el mercado; mantener {usd(pub)}" + \
-                (f" (el sugerido es {usd(s)}, dentro de ±{tol * 100:.0f} %)." if abs(pub - s) >= 1 else ".")
+        texto = (f"Lleva {d} días y el publicado ({usd(pub)}) está dentro de la banda {usd(minimo)} – {usd(maximo)}; "
+                 f"mantener. {frase}")
 
-    if pub < costo or d > p["tramos"][2]:
+    # --- semáforo: el estado del tramo; rojo si hay pérdida; un verde con pendientes pasa a amarillo
+    sem, estado = ESTADOS_TRAMO[t]
+    if caso == "perdida_inevitable" or pub < eq:
         sem = "rojo"
-    elif d <= p["tramos"][1] and dentro and not vencida:
-        sem = "verde"
-    else:
-        sem = "amarillo"
-
     manual = u.get("mercado_manual") is not None
     aviso = None
     if conf and conf["nivel"] == "baja" and not manual:
         aviso = conf["texto"]
         texto += " Ojo: confianza baja en el valor de mercado."
-        if sem == "verde":
-            sem = "amarillo"
+    if sem == "verde" and (vencida or not en_banda or aviso):
+        sem = "amarillo"
+
+    # --- banda de negociación: mínimo · objetivo · máximo, con lo que deja cada uno
+    banda = [dict(clave=k, nombre=n, precio=v, utilidad=v - eq, pct=(v - eq) / eq if eq else None)
+             for k, n, v in (("minimo", "Mínimo", minimo), ("objetivo", "Objetivo", s), ("maximo", "Máximo", maximo))]
+
+    # --- los dos caminos: vender hoy o seguir esperando
+    dias_esp, margen_esp = int(p["dias_espera"]), p["margen_espera"]
+    if d < dias_esp:
+        extra = dias_esp - d
+        esperar = base * margen_esp - cd * extra
+        caminos = dict(modo="espera_larga", dias_extra=extra, hasta_dia=dias_esp, margen_espera=margen_esp,
+                       margen_usd=base * margen_esp, costo_espera=cd * extra)
+    else:
+        extra, esperar = d30 - d, util_espera
+        caminos = dict(modo="30_dias", dias_extra=extra, hasta_dia=d30, costo_espera=cd * extra)
+    caminos.update(vender_hoy=util_sug, esperar=esperar, diferencia=util_sug - esperar)
 
     return dict(
-        dias=d, tramo=t, tramo_nombre=nombres_tramos(p)[t], costo_diario=costo_diario(u, p), costo_acumulado=costo,
-        mercado=m, bajo50=lo, alto50=hi, pct_vs_mercado=pub / m - 1, sugerido=s, piso=piso,
+        dias=d, tramo=t, tramo_nombre=nombre_t, estado=estado, accion_comercial=ACCIONES_TRAMO[t],
+        costo_diario=cd, costo_base=base, costo_acumulado=eq, equilibrio=eq, piso_ganancia=piso, piso=piso,
+        mercado=m, bajo50=lo, alto50=hi, pct_vs_mercado=pub / m - 1, sugerido=s, minimo=minimo, maximo=maximo,
+        caso=caso, caso_nombre=CASOS[caso], frase_caso=frase, objetivo_margen=r["objetivo_margen"],
+        tope_mercado=r["tope_mercado"], margen_tramo=r["margen_tramo"], tope_tramo=r["tope_tramo"],
+        ajuste_stock=r["ajuste_stock"], stock=stock, limita=r["limita"], banda=banda, caminos=caminos,
         mercado_modelo=c.get("modelo", m), referencia_manual=manual, confianza=conf, aviso_confianza=aviso,
-        recomendacion=rec, texto=texto, dentro_banda=dentro, revision_vencida=vencida,
+        referencia=dict(ref or referencia_unidad(u), segunda_opinion=segunda_opinion(ref or referencia_unidad(u), m, c.get("modelo"))),
+        recomendacion=rec, texto=texto, dentro_banda=dentro, en_banda=en_banda, revision_vencida=vencida,
         dia_equilibrio=de,
         fecha_equilibrio=(_fecha(u["fecha_ingreso"]) + timedelta(days=de)).isoformat() if de is not None else None,
         dias_hasta_equilibrio=(de - d) if de is not None else None,
         utilidad_publicado=util_pub, utilidad_sugerido=util_sug, utilidad_espera_30=util_espera,
-        semaforo=sem, n_comparables=n_comparables)
+        perdida_hoy=-util_sug if util_sug < 0 else 0.0, semaforo=sem, n_comparables=n_comparables)
 
 
 def utilidad_real(u, p):
@@ -382,7 +639,7 @@ def indicadores_comite(filas, p):
     nombres = nombres_tramos(p)
     por_tramo = {t: 0 for t in nombres}
     capital_tramo = {t: 0.0 for t in nombres}
-    por_sem = {"verde": 0, "amarillo": 0, "rojo": 0}
+    por_sem = {"verde": 0, "amarillo": 0, "naranja": 0, "rojo": 0}
     viejas = [f for f in filas if f["e"]["dias"] > p["tramos"][3]]
     for f in filas:
         t = nombres[f["e"]["tramo"]]
@@ -401,15 +658,19 @@ def indicadores_comite(filas, p):
 
 
 def beneficio_venta(u, p):
-    """Beneficio de una unidad vendida antes del límite de antigüedad (tramos[3], 120 días): margen recuperado
-    (precio de venta − costo acumulado) + costo de capital evitado (días que faltaban hasta el límite × capital y
-    seguro por día). Las vendidas pasado el límite no suman. Devuelve None si no cuenta."""
+    """Beneficio de una unidad vendida antes del límite de antigüedad (tramos[3], 120 días), con la fórmula del
+    business case (la misma del prototipo del grupo):
+        margen recuperado = (precio de venta − costo de compra y reacondicionamiento) − costo × margen que deja esperar (3,2 %)
+        capital evitado   = costo diario × (días de espera − días en piso)          (232 días en la Entrega 1)
+        beneficio         = margen recuperado + capital evitado
+    Ejemplo de la Entrega 1: carro de USD 15.715 vendido al día 75 → capital evitado 5,17 × (232 − 75) = USD 812.
+    Las vendidas pasado el límite no suman. Devuelve None si no cuenta."""
     d = dias_en_piso(u)
     if d > p["tramos"][3] or u.get("precio_venta") is None:
         return None
-    a = _componentes_auto(u, p)
-    margen = u["precio_venta"] - costo_acumulado(u, d, p)
-    evitado = (p["tramos"][3] - d) * (a["capital"] + a["seguro"])
+    base = _base_costo(u)
+    margen = (u["precio_venta"] - base) - base * p["margen_espera"]
+    evitado = max(p["dias_espera"] - d, 0) * costo_diario(u, p)
     return dict(dias=d, margen=margen, capital_evitado=evitado, total=margen + evitado)
 
 
@@ -427,9 +688,18 @@ def estado_avance(a):
     return None if a is None else "ok" if a >= 1 else "cerca" if a >= 0.5 else "lejos"
 
 
+def _meta(clave, nombre, formato, valor, base, p, k28, k29, menos_es_mejor, detalle, **extra):
+    """Tarjeta de un objetivo: valor actual, línea base, meta 2028 (con la que se mide el avance) y meta 2029."""
+    m28, m29 = p[k28], p[k29]
+    a = _avance(valor, base, m28, menos_es_mejor)
+    return dict(clave=clave, nombre=nombre, formato=formato, valor=valor, base=base, meta=m28, meta2029=m29,
+                avance=a, estado=estado_avance(a), menos_es_mejor=menos_es_mejor, detalle=detalle, **extra)
+
+
 def objetivos(en_piso, vendidas, cambios, p, hoy=None, ventana=VENTANA_OBJETIVOS):
-    """Las cuatro metas del caso. en_piso: [{'u','e'}]; vendidas: unidades vendidas (cualquier fecha);
-    cambios: cambios de precio de la ventana [{'precio_nuevo','precio_sugerido','aprobado'}]."""
+    """Las cuatro metas del business case. en_piso: [{'u','e'}]; vendidas: unidades vendidas (cualquier fecha);
+    cambios: cambios de precio de la ventana [{'precio_nuevo','precio_sugerido','precio_minimo','precio_maximo','aprobado'}].
+    Cada tarjeta trae línea base, meta 2028 y meta 2029; el avance se mide contra la meta 2028."""
     hoy = _fecha(hoy or date.today())
     desde = hoy - timedelta(days=ventana)
     recientes = [u for u in vendidas if u.get("fecha_venta") and _fecha(u["fecha_venta"]) >= desde]
@@ -439,35 +709,78 @@ def objetivos(en_piso, vendidas, cambios, p, hoy=None, ventana=VENTANA_OBJETIVOS
     d_ven = [dias_en_piso(u) for u in recientes]
     d_piso = [f["e"]["dias"] for f in en_piso]
     v = (sum(d_ven) / len(d_ven)) if d_ven else None
-    a = _avance(v, p["base_dias_promedio"], p["meta_dias_promedio"], True)
-    out.append(dict(clave="dias", nombre="Días promedio en piso", formato="dias", valor=v, meta=p["meta_dias_promedio"],
-                    base=p["base_dias_promedio"], avance=a, estado=estado_avance(a), menos_es_mejor=True,
-                    detalle=(f"{len(d_ven)} vendidas en los últimos {ventana} días" if d_ven else f"Sin ventas en los últimos {ventana} días")
-                    + (f" · en piso hoy: {sum(d_piso) / n_piso:.0f} d" if n_piso else "")))
+    out.append(_meta("dias", "Días promedio en inventario", "dias", v, p["base_dias_promedio"], p, "meta_dias_2028", "meta_dias_2029", True,
+                     (f"{len(d_ven)} vendidas en los últimos {ventana} días" if d_ven else f"Sin ventas en los últimos {ventana} días")
+                     + (f" · en inventario hoy: {sum(d_piso) / n_piso:.0f} d" if n_piso else ""), meta_empresa=p["meta_dias_empresa"]))
 
     viejas = sum(x > p["tramos"][3] for x in d_piso)
     v = (viejas / n_piso) if n_piso else None
-    a = _avance(v, p["base_pct_mas_120"], p["meta_pct_mas_120"], True)
-    out.append(dict(clave="mas120", nombre=f"Unidades con más de {p['tramos'][3]} días", formato="pct", valor=v,
-                    meta=p["meta_pct_mas_120"], base=p["base_pct_mas_120"], avance=a, estado=estado_avance(a),
-                    menos_es_mejor=True, detalle=f"{viejas} de {n_piso} unidades en piso"))
+    out.append(_meta("mas120", f"Unidades con más de {p['tramos'][3]} días", "pct", v, p["base_pct_mas_120"], p,
+                     "meta_pct_mas_120_2028", "meta_pct_mas_120_2029", True, f"{viejas} de {n_piso} unidades en inventario"))
 
     dentro = sum(1 for c in cambios if c.get("precio_sugerido") and
-                 (abs(c["precio_nuevo"] / c["precio_sugerido"] - 1) <= p["tolerancia_excepcion"] or c.get("aprobado") == 1))
+                 (not es_excepcion(c, p["tolerancia_excepcion"]) or c.get("aprobado") == 1))
     v = (dentro / len(cambios)) if cambios else None
-    a = _avance(v, 0, p["meta_pct_en_regla"], False)
-    out.append(dict(clave="regla", nombre="Cambios de precio dentro de la regla", formato="pct", valor=v,
-                    meta=p["meta_pct_en_regla"], base=None, avance=a, estado=estado_avance(a), menos_es_mejor=False,
-                    detalle=(f"{dentro} de {len(cambios)} en los últimos {ventana} días (dentro de ±{p['tolerancia_excepcion'] * 100:.0f} % "
-                             f"del sugerido o con excepción aprobada)") if cambios else f"Sin cambios de precio en los últimos {ventana} días"))
+    out.append(_meta("regla", "Cambios de precio dentro de la regla", "pct", v, None, p, "meta_pct_en_regla_2028", "meta_pct_en_regla_2029",
+                     False, (f"{dentro} de {len(cambios)} en los últimos {ventana} días (dentro de la banda mínimo–máximo "
+                             f"o con excepción aprobada)") if cambios else f"Sin cambios de precio en los últimos {ventana} días"))
 
     ben = [b for b in (beneficio_venta(u, p) for u in recientes) if b]
     periodo = sum(b["total"] for b in ben)
     anual = periodo * 365 / ventana
-    a = _avance(anual, 0, p["meta_beneficio_anual"], False) if ben else None
-    out.append(dict(clave="beneficio", nombre="Beneficio acumulado (margen + capital)", formato="usd", valor=anual if ben else None,
-                    meta=p["meta_beneficio_anual"], base=None, avance=a, estado=estado_avance(a), menos_es_mejor=False,
-                    periodo=periodo, margen=sum(b["margen"] for b in ben), capital_evitado=sum(b["capital_evitado"] for b in ben),
-                    detalle=(f"{usd(periodo)} en {ventana} días ({len(ben)} ventas antes de {p['tramos'][3]} d) llevados a un año"
-                             if ben else f"Sin ventas antes de {p['tramos'][3]} días en los últimos {ventana} días")))
+    out.append(_meta("beneficio", "Beneficio acumulado (margen + capital)", "usd", anual if ben else None, None, p,
+                     "meta_beneficio_2028", "meta_beneficio_2029", False,
+                     (f"{usd(periodo)} en {ventana} días ({len(ben)} ventas antes de {p['tramos'][3]} d) llevados a un año"
+                      if ben else f"Sin ventas antes de {p['tramos'][3]} días en los últimos {ventana} días"),
+                     periodo=periodo, margen=sum(b["margen"] for b in ben), capital_evitado=sum(b["capital_evitado"] for b in ben)))
     return out
+
+
+# ----------------------------------------------------------------------------- pruebas con usuarios (validación)
+PERFILES = ["Asesor de concesionario", "Revendedor de usados", "Vendedor particular", "Dueño o administrador de negocio",
+            "Evalúa precios o márgenes", "Otro"]
+VENDIBLE = dict(si="Sí", ajuste="Sí, con ajuste", no="No")
+DISPOSITIVOS = ["Celular", "Computadora"]
+HIPOTESIS = [
+    dict(clave="H1", texto="La regla da precios que los evaluadores consideran vendibles en 30 días en al menos 8 de cada 10 carros "
+                           "probados (sí o sí con ajuste).", meta=0.8),
+    dict(clave="H2", texto="Un asesor obtiene el precio sugerido en menos de 60 segundos y sin capacitación (4 de cada 5).", meta=0.8),
+    dict(clave="H3", texto="El semáforo lleva al comité el 100 % de las unidades antes del día 91.", meta=1.0),
+]
+
+
+def resumen_hipotesis(pruebas, h3):
+    """Calcula si se cumplen H1, H2 y H3.
+    pruebas: lista de dict con 'vendible' (si / ajuste / no) y 'segundos'.
+    h3: {'aplica': unidades que ya pasaron el día 90, 'pasaron': de ellas, las que tuvieron una revisión antes del día 91}."""
+    h1 = [x for x in pruebas if x.get("vendible") in VENDIBLE]
+    h2 = [x for x in pruebas if x.get("segundos") is not None]
+    datos = {
+        "H1": (sum(x["vendible"] in ("si", "ajuste") for x in h1), len(h1), "carros probados"),
+        "H2": (sum(x["segundos"] < 60 for x in h2), len(h2), "pruebas con tiempo medido"),
+        "H3": (h3.get("pasaron", 0), h3.get("aplica", 0), "unidades que ya pasaron el día 90"),
+    }
+    out = []
+    for h in HIPOTESIS:
+        ok_n, n, que = datos[h["clave"]]
+        v = (ok_n / n) if n else None
+        out.append(dict(**h, cumplen=ok_n, n=n, valor=v, que=que,
+                        estado=None if v is None else "cumple" if v >= h["meta"] - 1e-9 else "no_cumple"))
+    return out
+
+
+def pasaron_por_comite(unidades, cambios, limite=None, hoy=None):
+    """H3: de las unidades que ya pasaron el día 90 (en inventario o vendidas), cuántas tuvieron una revisión de precio con la
+    regla (comité) hasta el día 91. unidades: dicts con id, fecha_ingreso, fecha_venta; cambios: filas de precios con
+    unidad_id y fecha."""
+    limite = limite or 91
+    aplica = [u for u in unidades if dias_en_piso(u, hoy) > limite - 1]
+    revisadas = set()
+    for c in cambios:
+        revisadas.add((c["unidad_id"], _fecha(c["fecha"])))
+    por_unidad = {}
+    for uid, f in revisadas:
+        por_unidad.setdefault(uid, []).append(f)
+    pasaron = [u for u in aplica if any((f - _fecha(u["fecha_ingreso"])).days <= limite for f in por_unidad.get(u["id"], []))]
+    return dict(aplica=len(aplica), pasaron=len(pasaron))
+

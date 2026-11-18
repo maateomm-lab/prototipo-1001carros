@@ -1,5 +1,5 @@
 ---
-title: Prototipo 1001Carros - Pricing e Inventario
+title: Pricing dinamico 1001 - Inventario
 emoji: 🚗
 colorFrom: indigo
 colorTo: yellow
