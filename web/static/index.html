@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pricing dinámico 1001 · Inventario</title>
+  <title>Pricing dinámico 1001</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   <div class="login-bg"></div>
   <form class="login-card" id="f-login" autocomplete="on">
     <div class="logo"><span class="logo-1001">1001</span>Carros<span class="logo-ia">IA</span></div>
-    <h1 id="login-tit">Pricing dinámico 1001 · Inventario</h1>
+    <h1 id="login-tit">Pricing dinámico 1001</h1>
     <p class="login-sub" id="login-sub">Prototipo académico (USFQ · Grupo 2). Acceso de demostración: usuario <b>grupo</b>, clave <b>1001carros</b>.</p>
     <div id="setup-campos" hidden>
       <label class="lbl">Tu nombre completo</label>
@@ -37,8 +37,9 @@
 <div class="app" id="app" hidden>
   <aside class="side">
     <div class="logo"><span class="logo-1001">1001</span>Carros<span class="logo-ia">IA</span></div>
-    <p class="side-sub">Pricing dinámico 1001 · Inventario</p>
+    <p class="side-sub">Pricing dinámico 1001</p>
     <nav class="side-nav">
+      <a href="#/calculadora" data-v="calculadora"><i>🧮</i><span>Calculadora</span></a>
       <a href="#/inventario" data-v="inventario"><i>🚗</i><span>Inventario</span></a>
       <a href="#/tablero" data-v="tablero"><i>🎯</i><span>Tablero de objetivos</span></a>
       <a href="#/pruebas" data-v="pruebas"><i>🧪</i><span>Pruebas</span></a>
@@ -87,80 +88,133 @@
       </div>
     </section>
 
-    <!-- ------------------------------------------- DETALLE DE UNIDAD -->
-    <section class="vista" data-vista="unidad" hidden>
+    <!-- ------------------------------------------- CALCULADORA -->
+    <section class="vista" data-vista="calculadora" hidden>
       <header class="vista-head">
-        <div><a class="volver" href="#/inventario">← Inventario</a><h2 id="un-tit">–</h2><p class="hint" id="un-meta">–</p></div>
-        <div class="acciones">
-          <button class="btn btn-ghost auto" id="un-editar">✎ Editar datos y referencia</button>
-          <button class="btn btn-ghost auto" id="un-nota">📋 Copiar nota para el comité</button>
-          <button class="btn btn-ghost auto" id="un-vender">Marcar vendida / estado</button>
-        </div>
+        <div><h2>Calculadora de precio</h2><p class="hint">Toma un carro del inventario y sus días parados y te da el rango de precio de hoy, el margen que deja, lo que cuesta seguir esperando y por qué. Parte de una unidad del inventario o de un carro publicado en 1001carros.com.</p></div>
       </header>
-      <div id="un-activa">
-        <div class="card sug-card" id="un-sug">
-          <div class="sug-main">
-            <p class="k light">Precio sugerido de hoy</p>
-            <p class="valor sm" id="un-sugerido">–</p>
-            <p class="sug-rec"><span id="un-rec"></span><span id="un-caso"></span><span id="un-sem"></span></p>
-            <p class="res-sub light" id="un-texto">–</p>
-            <div class="row-btns">
-              <button class="btn btn-amarillo" id="un-aplicar">Aplicar sugerido</button>
-              <button class="btn btn-claro" id="un-otro">Otro precio…</button>
+
+      <div class="cal-grid">
+        <div class="cal-izq">
+          <form class="card" id="f-calc" autocomplete="off">
+            <h3 class="card-tit">Datos del carro</h3>
+            <label class="lbl">Partir de… <small>(opcional)</small></label>
+            <select id="c-partir"><option value="">Elegir una unidad del inventario o un anuncio de 1001carros.com…</option></select>
+            <p class="hint" id="c-partir-hint">Al elegir uno se llenan los datos. De un anuncio de 1001carros.com, el costo se estima como precio publicado ÷ 1,12 (margen de ingreso de la empresa) y el precio publicado queda para compararlo.</p>
+            <div class="grid2">
+              <div><label class="lbl">Marca</label><div class="combo" id="cb-c-marca"><input type="text" placeholder="Toyota, Kia…" autocomplete="off"><ul class="combo-list"></ul></div></div>
+              <div><label class="lbl">Modelo</label><div class="combo" id="cb-c-modelo"><input type="text" placeholder="Elige primero la marca" autocomplete="off" disabled><ul class="combo-list"></ul></div></div>
+              <div><label class="lbl">Versión <small>(opcional)</small></label><select id="c-version" disabled><option value="">No sé / estándar</option></select></div>
+              <div><label class="lbl">Año</label><input type="number" id="c-anio" min="1980" max="2027" step="1" required></div>
+              <div><label class="lbl">Kilometraje</label><input type="number" id="c-km" min="0" step="1"></div>
+              <div><label class="lbl">Costo de recepción <small>(USD sin IVA)</small></label><input type="number" id="c-costo" min="1" step="any" required></div>
+              <div><label class="lbl">Fecha de ingreso</label><input type="date" id="c-fecha"></div>
+              <div><label class="lbl">Días en inventario</label><input type="number" id="c-dias" min="0" step="1" required></div>
+              <div><label class="lbl">Unidades del mismo modelo en stock</label><input type="number" id="c-stock" min="1" step="1"></div>
+              <div><label class="lbl">Referencia de mercado <small>(USD)</small></label><input type="number" id="c-ref" min="0" step="any" placeholder="Se llena sola"></div>
+              <div><label class="lbl">Región <small>(informativa)</small></label><select id="c-region"><option>Sierra</option><option>Costa/Austro</option></select></div>
             </div>
+            <p class="hint" id="c-hint">La fecha y los días se calculan uno desde el otro. El stock se llena contando el inventario. La referencia se llena con la regla del Apéndice E; si la escribes tú, queda como referencia manual.</p>
+            <p class="form-err" id="c-err" hidden></p>
+            <div class="row-btns">
+              <button class="btn btn-pri" type="submit" id="c-calcular">Calcular precio</button>
+              <button class="btn btn-ghost" type="button" id="c-limpiar">Limpiar</button>
+            </div>
+          </form>
+
+          <div class="card" id="cal-unidad" hidden>
+            <div class="card-tit-row"><h3 class="card-tit">Acciones sobre esta unidad</h3><span class="pill" id="cu-badge"></span></div>
+            <div class="kv" id="cu-kv"></div>
+            <div class="row-btns cu-btns">
+              <button class="btn btn-pri" type="button" id="un-aplicar">Aplicar precio sugerido</button>
+              <button class="btn btn-ghost" type="button" id="un-otro">Otro precio con motivo</button>
+              <button class="btn btn-ghost" type="button" id="un-confirmar">Confirmar revisión</button>
+              <button class="btn btn-ghost" type="button" id="un-vender">Marcar vendida</button>
+            </div>
+            <p class="hint" id="cu-nota" hidden>Cambiaste datos del formulario: lo que ves es una simulación y no se guarda. Las acciones usan los datos guardados de la unidad.</p>
+            <div class="row-btns"><button class="btn btn-ghost" type="button" id="un-editar">✎ Editar datos y referencia de la unidad</button></div>
+            <div class="hist-modelo" id="cu-hist"></div>
           </div>
-          <div class="sug-datos" id="un-datos"></div>
+          <div class="card" id="un-vendida" hidden></div>
         </div>
-        <div class="res-grid iguales un-bloques">
-          <div class="card">
-            <h3 class="card-tit">Banda de negociación</h3>
-            <p class="hint" id="un-banda-sub">–</p>
-            <div class="banda" id="un-banda"></div>
-            <p class="accion-tramo" id="un-accion"></p>
+
+        <div class="card cal-res" id="cal-res" aria-live="polite">
+          <div class="cal-vacio" id="cal-vacio">Completa los datos y pulsa <b>Calcular precio</b>.</div>
+          <div id="cal-lleno" hidden>
+            <div class="cal-top">
+              <div>
+                <p class="k">Precio sugerido hoy</p>
+                <p class="cal-precio" id="cal-precio">–</p>
+                <p class="cal-margen" id="cal-margen">–</p>
+              </div>
+              <span class="pill" id="cal-pill">–</span>
+            </div>
+
+            <h4 class="sub-tit">Rango de precio</h4>
+            <div class="banda" id="cal-banda"></div>
+            <p class="accion-tramo" id="cal-banda-nota"></p>
+
+            <h4 class="sub-tit">Datos del cálculo</h4>
+            <div class="kv" id="cal-kv"></div>
+
+            <div class="cal-accion" id="cal-accion"></div>
+            <p class="hist-modelo" id="cal-hist"></p>
+
+            <h4 class="sub-tit">Escalera de precio según los días</h4>
+            <div class="escalera" id="cal-escalera"></div>
+            <p class="cparam-nota">Es el precio objetivo que daría la regla en cada tramo, con el margen sobre el costo acumulado de ese día. El tramo actual está marcado.</p>
+
+            <h4 class="sub-tit">Los dos caminos</h4>
+            <div class="caminos" id="cal-caminos"></div>
+            <p class="cparam-nota" id="cal-caminos-fuente"></p>
+
+            <h4 class="sub-tit">Por qué este precio</h4>
+            <ol class="pasos" id="cal-pasos"></ol>
+            <p class="cal-comparacion" id="cal-comp" hidden></p>
+
+            <h4 class="sub-tit">Segunda opinión del modelo</h4>
+            <div class="cal-seg" id="cal-seg"></div>
+
+            <details class="plegable" id="cal-graf">
+              <summary>¿A qué precio vender según los días? <small>(gráfico)</small></summary>
+              <p class="hint">El precio sugerido (línea gruesa) nunca entra en la <b>zona roja</b> sin ganancia mientras el mercado lo permita. En la leyenda puedes mostrar el objetivo por margen, el tope de mercado y el modelo.</p>
+              <div class="chart-box xl"><canvas id="ch-calc"></canvas></div>
+              <p class="frase-grafico" id="cal-grafico-frase"></p>
+            </details>
+            <div class="row-btns"><button class="btn btn-ghost" type="button" id="un-nota">📋 Copiar nota para el comité</button></div>
           </div>
-          <div class="card">
-            <h3 class="card-tit">Los dos caminos</h3>
-            <p class="hint">Qué deja vender hoy al precio sugerido frente a seguir esperando.</p>
-            <div class="caminos" id="un-caminos"></div>
-            <p class="cparam-nota" id="un-caminos-fuente"></p>
-          </div>
-        </div>
-        <div class="card">
-          <h3 class="card-tit">¿A qué precio vender según los días?</h3>
-          <p class="hint">El precio sugerido (línea gruesa) nunca entra en la <b>zona roja</b> sin ganancia mientras el mercado lo permita. En la leyenda puedes mostrar el objetivo por margen y el tope de mercado.</p>
-          <div class="chart-box xl"><canvas id="ch-unidad"></canvas></div>
-          <p class="frase-grafico" id="un-grafico-frase"></p>
         </div>
       </div>
-      <div class="card" id="un-vendida" hidden></div>
-      <div class="res-grid iguales un-bloques">
-        <div class="card" id="un-costo">
-          <h3 class="card-tit">Cómo se calcula el costo diario</h3>
+
+      <div class="cal-extra">
+        <h3 class="card-tit">Más detalle</h3>
+        <details class="plegable card" id="un-costo">
+          <summary>Cómo se calcula el costo diario</summary>
           <p class="hint" id="un-costo-sub">–</p>
           <table class="tabla compacta"><thead><tr><th>Componente y cálculo</th><th class="num">USD/día</th></tr></thead><tbody id="un-costo-filas"></tbody></table>
           <div class="costo-total" id="un-costo-total"></div>
-        </div>
-        <div class="card" id="un-mercado">
-          <h3 class="card-tit">Mercado: de dónde sale el valor</h3>
+        </details>
+        <details class="plegable card" id="un-mercado">
+          <summary>Mercado: de dónde sale el valor</summary>
           <div id="un-conf"></div>
           <div class="ref-valores" id="un-ref"></div>
           <p class="hist-modelo" id="un-hist-modelo" hidden></p>
           <div class="row-btns"><button class="btn btn-ghost auto" id="un-ref-btn" type="button">Fijar referencia manual…</button></div>
-        </div>
-      </div>
-      <div class="card" id="un-comps-card">
-        <h3 class="card-tit">Avisos parecidos en Patio Tuerca</h3>
-        <p class="hint" id="un-comps-sub">–</p>
-        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Aviso</th><th class="num">Año</th><th class="num">Km</th><th class="num">Precio</th><th class="num">vs mercado</th><th>Ciudad</th><th></th></tr></thead><tbody id="un-comps"></tbody></table>
-        <p class="vacio-tabla" id="un-comps-vacio" hidden>No hay avisos parecidos de esta familia.</p></div>
-      </div>
-      <div class="card" style="margin-top:18px">
-        <h3 class="card-tit">Historial de precios</h3>
-        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Anterior</th><th class="num">Nuevo</th><th class="num">Sugerido</th><th>Motivo</th><th>Usuario</th></tr></thead><tbody id="un-historial"></tbody></table></div>
-      </div>
-      <div class="card" style="margin-top:18px" id="un-refs-card" hidden>
-        <h3 class="card-tit">Historial de referencias manuales de mercado</h3>
-        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Referencia</th><th class="num">Valor del modelo ese día</th><th>Fuente</th><th>Usuario</th></tr></thead><tbody id="un-refs"></tbody></table></div>
+        </details>
+        <details class="plegable card" id="un-comps-card">
+          <summary>Avisos parecidos en Patio Tuerca</summary>
+          <p class="hint" id="un-comps-sub">–</p>
+          <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Aviso</th><th class="num">Año</th><th class="num">Km</th><th class="num">Precio</th><th class="num">vs mercado</th><th>Ciudad</th><th></th></tr></thead><tbody id="un-comps"></tbody></table>
+          <p class="vacio-tabla" id="un-comps-vacio" hidden>No hay avisos parecidos de esta familia.</p></div>
+        </details>
+        <details class="plegable card" id="un-hist-card" hidden>
+          <summary>Historial de precios de la unidad</summary>
+          <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Anterior</th><th class="num">Nuevo</th><th class="num">Sugerido</th><th>Motivo</th><th>Usuario</th></tr></thead><tbody id="un-historial"></tbody></table></div>
+        </details>
+        <details class="plegable card" id="un-refs-card" hidden>
+          <summary>Historial de referencias manuales de mercado</summary>
+          <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th class="num">Referencia</th><th class="num">Valor del modelo ese día</th><th>Fuente</th><th>Usuario</th></tr></thead><tbody id="un-refs"></tbody></table></div>
+        </details>
       </div>
     </section>
 
@@ -258,7 +312,7 @@
             <div><label class="lbl">Tolerancia del rango de mercado (±%)</label><input type="number" step="0.5" min="0" name="tolerancia_banda"></div>
           </div>
           <h3 class="card-tit" style="margin-top:18px">Metas del Tablero de objetivos</h3>
-          <p class="hint">Línea base, meta 2028 (la que se vigila hoy) y meta 2029. El beneficio de cada unidad vendida antes de los 120 días es el <b>margen recuperado</b> (precio de venta − compra − compra × 3,2 %) más el <b>capital evitado</b> (costo diario × (232 − días en piso)).</p>
+          <p class="hint">Línea base, meta 2028 (la que se vigila hoy) y meta 2029. El beneficio por unidad de la Entrega 1 es USD 1.932: <b>margen recuperado</b> USD 1.120 (6,4 % sobre USD 17.500) + <b>capital evitado</b> USD 812 (USD 5,17 por día × 157 días). Cada venta real antes de los 120 días suma (precio de venta − compra − compra × 3,2 %) + costo diario × (232 − días en piso).</p>
           <div class="tabla-wrap"><table class="tabla compacta tabla-param">
             <thead><tr><th>Objetivo</th><th>Línea base</th><th>Meta 2028</th><th>Meta 2029</th></tr></thead>
             <tbody>
@@ -347,6 +401,7 @@
 
       <div class="card">
         <h3 class="card-tit">2. Las dos piezas</h3>
+        <p class="hint">La pestaña <b>Calculadora</b> junta las dos piezas: se toma un carro (de la lista del inventario o de los 100 anuncios de 1001carros.com) con sus días parados y entrega el rango de precio de hoy con todo el razonamiento: mínimo, objetivo y máximo; el margen que deja; la escalera de precio por tramo; los dos caminos; y los pasos de «por qué este precio». Al abrir una unidad desde Inventario o Tablero se pueden aplicar el precio sugerido, otro precio con motivo, confirmar la revisión o marcarla vendida.</p>
         <div class="res-grid iguales como-piezas">
           <div><h4>Referencia de mercado (Apéndice E de la Entrega 1)</h4>
             <p>El valor de mercado de cada modelo y año es el de la Entrega 1: la <b>mediana de los anuncios de Patiotuerca y Autocor del 7-oct-2026</b>. Si falta el año exacto, se toma el año más cercano del mismo modelo y se ajusta <b>6 % por año</b> de diferencia. Con el tiempo baja igual: <b>referencia × 0,94^(días ÷ 365)</b>. La confianza sale de cuántos anuncios la respaldan: alta con 5 o más del año exacto, media con 2–4, baja con 1 o con año ajustado. Cada unidad muestra la <b>fuente</b> de su referencia.</p>
@@ -376,9 +431,10 @@
         <h4 style="margin-top:16px">Costo de esperar y beneficio (como en la Entrega 1)</h4>
         <ul class="evid">
           <li><b>Costo de esperar = solo el capital al 12 % anual.</b> Costo diario = 12 % × (compra + reacondicionamiento) ÷ 365, redondeado a centavos. Un carro de USD 15.715 cuesta <b>USD 5,17 por día</b>; uno de USD 17.000, USD 5,59. Seguro, patio y lavado no están en la Entrega 1: valen 0 salvo que se activen en Parámetros (sensibilidad).</li>
-          <li><b>Capital evitado</b> = costo diario × (232 − días en piso). Vender al día 75 un carro de USD 15.715 evita 5,17 × (232 − 75) = <b>USD 812</b>.</li>
-          <li><b>Margen recuperado</b> = (precio de venta − compra y reacondicionamiento) − compra × 3,2 %: lo que se gana al vender ahora frente al margen con que se venden las unidades que pasan de 120 días.</li>
-          <li><b>Beneficio por unidad</b> = margen recuperado + capital evitado, solo si se vende antes de los 120 días. La meta de USD 367.080 (2029) y la de USD 183.540 (2028) son 190 y 95 unidades de USD 1.932 cada una.</li>
+          <li><b>Margen recuperado</b> (Entrega 1, sección 3.2): una unidad vendida entre los días 61 y 90 deja 9,6 % de margen y una que pasa de 120 días deja 3,2 %. Esos <b>6,4 % sobre el precio de referencia de USD 17.500 son USD 1.120</b> por unidad.</li>
+          <li><b>Capital evitado</b> = costo diario × (232 − 75). Un carro de USD 15.715 cuesta 15.715 × 12 % ÷ 365 = USD 5,17 por día, y venderlo al día 75 evita 157 días de espera: 5,17 × 157 = <b>USD 812</b> por unidad.</li>
+          <li><b>Beneficio por unidad = 1.120 + 812 = USD 1.932.</b> El beneficio anual es las unidades que dejan de pasar de 120 días × 1.932 (Tabla 3): <b>25 % → 95 unidades → USD 183.540</b> (meta 2028); <b>50 % → 190 unidades → USD 367.080</b> (USD 212.800 de margen + USD 154.280 de capital; meta 2029); 75 % → 284 unidades → USD 548.688. En el escenario del 50 % se liberan unos USD 1,28 millones de capital.</li>
+          <li><b>En el Tablero</b>, cada venta real antes de los 120 días suma con esa misma estructura: (precio de venta − compra) − compra × 3,2 % + costo diario × (232 − días en piso).</li>
         </ul>
       </div>
 
@@ -423,6 +479,7 @@
             <tr><td><b>v2</b></td><td class="nw">03-nov-2026</td><td>Módulo de inventario: costo diario por carro, confianza del mercado, referencia manual y Tablero de objetivos.</td></tr>
             <tr><td><b>v3</b></td><td class="nw">16-nov-2026</td><td>Regla de precio que siempre busca ganar algo, banda de negociación, los dos caminos, curva de mercado por día, gráficos más claros, inventario con datos reales del caso, metas del business case, pruebas con usuarios y esta página.</td></tr>
             <tr><td><b>v4</b></td><td class="nw">17-nov-2026</td><td>Solo inventario: se quita la calculadora de precio de toma. La referencia de mercado es la del Apéndice E de la Entrega 1 (el modelo pasa a segunda opinión y respaldo) y el costo de esperar es solo el capital al 12 % anual, con seguro, patio y lavado como análisis de sensibilidad. Todos los números coinciden con la Entrega 1.</td></tr>
+            <tr><td><b>v5</b></td><td class="nw">18-nov-2026</td><td>Calculadora de precio de inventario como primera pestaña (un carro y sus días parados → rango de precio, margen, escalera por tramo, dos caminos, pasos del razonamiento, histórico del modelo, segunda opinión y gráfico), con acciones sobre la unidad; el detalle de unidad pasa a ser la Calculadora. Beneficio de USD 1.932 por unidad y Tabla 3 de la Entrega 1 (USD 183.540 · 367.080 · 548.688). Los avisos parecidos del Corolla ya no incluyen el Corolla Cross.</td></tr>
           </tbody></table></div>
       </div>
     </section>

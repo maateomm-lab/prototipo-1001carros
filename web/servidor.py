@@ -23,6 +23,9 @@ API (todas piden sesión salvo sesion/setup/login)
   GET/POST /api/usuarios[/<u>]     administrar empleados (solo admin)
   POST /api/yo/clave               cambiar mi contraseña
   GET/POST /api/inventario         lista con cálculos del día (filtros: estado, linea, agencia, semaforo, texto) / crear unidad
+  POST /api/calculadora            Calculadora: carro + días en inventario -> rango de precio con todo el razonamiento
+  GET  /api/calculadora/unidades   unidades en piso para «Partir de…»
+  GET  /api/calculadora/referencia referencia de mercado que propone la regla (marca, familia, version, anio)
   GET/POST /api/inventario/<id>    detalle (curvas, costo, confianza, comparables, historiales) / editar, cambiar estado o vender
   POST /api/inventario/<id>/precio aplicar precio (sugerido, otro con motivo, o mantener con motivo)
   GET  /api/tablero                Tablero de objetivos: metas, decisiones de la semana y dónde está el dinero
@@ -68,7 +71,7 @@ AVISOS = P.limpiar_usados(P.USADOS_DEF)[["marca", "familia", "version", "titulo"
 N_FAMILIA = AVISOS.familia.value_counts().to_dict()
 LOCK = threading.Lock()     # un solo hilo usa XGBoost a la vez
 MAPA_FAMILIAS = CASO.mapa_familias(ART, N_FAMILIA)     # texto de familia del caso -> (marca, familia) del catálogo
-VERSION = "v4 · 17-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
+VERSION = "v5 · 18-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
 
 
 # ----------------------------------------------------------------------------- catálogo
@@ -130,6 +133,9 @@ def curvas(auto):
 
 def comparables(auto, mercado):
     g = AVISOS[AVISOS.familia == auto["familia"]]
+    if auto["familia"].split(" ", 1)[-1] in INV.FAMILIAS_CON_CROSS:     # Corolla Cross es otro carro (SUV): no se mezcla con el Corolla
+        cross = g.version.map(INV.es_cross) | g.titulo.map(INV.es_cross)
+        g = g[cross == INV.es_cross(auto.get("version"))]
     g = g[(g.anio - auto["anio"]).abs() <= 4]
     if g.empty:
         return [], 0
@@ -338,6 +344,131 @@ def detalle_unidad(uid, p):
         comps, n = comparables(dict(familia=u["familia"], anio=u["anio"], km=u["km"], version=u["version"]), e["mercado"])
         out["comparables"], out["n_comparables"] = comps[:15], n
     return out
+
+
+# ----------------------------------------------------------------------------- calculadora de precio (v5)
+_CURVAS_CALC = {}
+REGIONES = ["Sierra", "Costa/Austro"]
+CIUDADES_COSTA_AUSTRO = {"Guayaquil", "Manta", "Machala", "Cuenca", "Loja", "Portoviejo"}
+
+
+def _num_calc(q, k, nombre, entero=False, minimo=None):
+    v = q.get(k)
+    if v in (None, ""):
+        return None
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{nombre} debe ser un número")
+    if minimo is not None and v < minimo:
+        raise ValueError(f"{nombre} no puede ser menor que {minimo:g}")
+    return int(v) if entero else v
+
+
+def _pn_catalogo(marca, familia, version, modelo=None):
+    """Precio de nuevo del catálogo (igual que al crear una unidad)."""
+    txt = modelo or f"{P.nombre_familia(familia)} {'' if version in (None, 'base') else version}"
+    return P.buscar_pn(marca, f"{marca} {txt}", None, None, None, ART["nuevos"])
+
+
+def unidades_calculadora():
+    """Unidades en piso para el selector «Partir de…» de la Calculadora (sin calcular nada)."""
+    out = [dict(id=u["id"], vehiculo=u["vehiculo"] or f"{u['marca']} {u['familia']} {u['anio']}", anio=u["anio"], km=u["km"],
+                agencia=u["agencia"], dias=INV.dias_en_piso(u), estado=u["estado"])
+           for u in BD.listar_unidades() if u["estado"] in ("En piso", "Reservada")]
+    return sorted(out, key=lambda x: (x["vehiculo"].lower(), -x["dias"]))
+
+
+def referencia_auto(q):
+    """Referencia de mercado que propone la regla para marca, modelo, versión y año (sin referencia manual)."""
+    marca, familia = q.get("marca"), q.get("familia")
+    if familia not in ART["catalogo"].get(marca, {}):
+        raise ValueError("Elige una marca y un modelo de la lista")
+    version = q.get("version") or None
+    anio = _num_calc(q, "anio", "El año", entero=True, minimo=1980)
+    if not anio:
+        raise ValueError("Escribe el año")
+    u = dict(marca=marca, familia=familia, version=version, modelo=None, anio=anio, km=None, mercado_manual=None,
+             fecha_ingreso=date.today().isoformat(), pn_con_iva=None)
+    r = INV.referencia_unidad(u)
+    if r["tipo"] == "modelo":                           # respaldo: lo que estima el modelo para ese carro hoy
+        u["pn_con_iva"] = _pn_catalogo(marca, familia, version)
+        with LOCK:
+            r["p"] = float(round(INV.curva_mercado(ART, u, 1)[0]["modelo"], -1))
+    r["stock_auto"] = max(stock_familias().get(familia, 0), 1)
+    return r
+
+
+def calcular_precio(q):
+    """Calculadora: un carro y sus días parados -> rango de precio de hoy con todo el razonamiento, con el motor de
+    inventario.py (referencia del Apéndice E, costo solo capital). Con unidad_id parte de una unidad del inventario;
+    cualquier otro dato que llegue reemplaza al de la unidad (simulación, no se guarda nada)."""
+    p, hoy = parametros(), date.today()
+    ub = BD.obtener_unidad(int(q["unidad_id"])) if q.get("unidad_id") not in (None, "") else None
+    if ub and ub["estado"] in ("Vendida", "Liquidada"):
+        return dict(vendida=True, **detalle_unidad(ub["id"], p))
+    base = ub or {}
+    marca, familia = q.get("marca") or base.get("marca"), q.get("familia") or base.get("familia")
+    if familia not in ART["catalogo"].get(marca, {}):
+        raise ValueError("Elige una marca y un modelo de la lista")
+    version = (q.get("version") if "version" in q else base.get("version")) or None
+    anio = _num_calc(q, "anio", "El año", entero=True, minimo=1980) or base.get("anio")
+    if not anio:
+        raise ValueError("Escribe el año del carro")
+    km = _num_calc(q, "km", "El kilometraje", minimo=0)
+    km = base.get("km") if km is None else km
+    compra = _num_calc(q, "costo_compra", "El costo de recepción")
+    reacond = 0.0 if compra is not None else (base.get("reacondicionamiento") or 0.0)
+    compra = base.get("costo_compra") if compra is None else compra
+    if not compra or compra <= 0:
+        raise ValueError("Escribe un costo de recepción mayor que cero")
+    dias = _num_calc(q, "dias", "Los días en inventario", entero=True, minimo=0)
+    dias = (INV.dias_en_piso(ub, hoy) if ub else 0) if dias is None else dias
+    manual = _num_calc(q, "mercado_manual", "La referencia de mercado", minimo=0) if "mercado_manual" in q else base.get("mercado_manual")
+    manual = manual or None
+    publicado = _num_calc(q, "precio_publicado", "El precio publicado") or base.get("precio_publicado") \
+        or float(round(compra * CASO.MARGEN_PUBLICADO, -1))
+    mismo_auto = bool(ub) and (familia, version, anio) == (base.get("familia"), base.get("version"), base.get("anio"))
+    u = dict(base)
+    u.update(id=base.get("id"), marca=marca, familia=familia, version=version, modelo=ART["catalogo"][marca][familia].get(version) if version else None,
+             anio=anio, km=km, fecha_ingreso=(hoy - timedelta(days=dias)).isoformat(), costo_compra=float(compra),
+             reacondicionamiento=float(reacond), precio_publicado=float(publicado), mercado_manual=manual, estado="En piso",
+             fecha_venta=None, precio_venta=None, region=q.get("region") or base.get("region"),
+             ultima_revision=base.get("ultima_revision") or hoy.isoformat(), linea=base.get("linea") or "1001")
+    u["pn_con_iva"] = base.get("pn_con_iva") if mismo_auto else _pn_catalogo(marca, familia, version, u["modelo"])
+    if not u.get("vehiculo") or not mismo_auto:
+        u["vehiculo"] = nombre_unidad(dict(marca=marca, familia=familia, version=version, anio=anio))
+    hasta = max(INV.DIAS_CURVA, dias + 60)
+    clave = (u["id"], marca, familia, version, anio, km, u["fecha_ingreso"], u["pn_con_iva"], manual, hasta, hoy)
+    if clave not in _CURVAS_CALC:
+        if len(_CURVAS_CALC) > 200:
+            _CURVAS_CALC.clear()
+        with LOCK:
+            _CURVAS_CALC[clave] = INV.curva_mercado(ART, u, hasta)
+    cu = _CURVAS_CALC[clave]
+    stock = _num_calc(q, "stock", "El stock", entero=True, minimo=1) or max(stock_familias().get(familia, 0), 1)
+    fila = cu[min(dias, len(cu) - 1)]
+    _, n = comparables(dict(marca=marca, familia=familia, version=version, anio=anio, km=km), fila["mercado"])
+    e = INV.evaluar(u, cu, p, hoy, n_comparables=n, conf=confianza_unidad(u, fila), stock=stock, ref=INV.referencia_unidad(u))
+    de = e["dia_equilibrio"]
+    grafico_hasta = min(len(cu) - 1, max(dias + 60, (de + 30) if de is not None else 0, 90))
+    comps, n_comps = comparables(dict(familia=familia, anio=anio, km=km, version=version), e["mercado"])
+    auto = INV.referencia_unidad({**u, "mercado_manual": None})
+    if auto["tipo"] == "modelo":
+        auto = {**auto, "p": float(round(cu[0]["modelo"], -1))}
+    hist = INV.texto_historico(CASO.hist_de_familia(familia), CASO.historico().get("linea"), P.nombre_familia(familia))
+    margen_usd = e["sugerido"] - e["costo_acumulado"]
+    calc = dict(stock=stock, stock_auto=max(stock_familias().get(familia, 0), 1), referencia_auto=auto,
+                escalera=INV.escalera(u, cu, p, dias, stock), proxima_revision=INV.proxima_revision(dias, p, hoy),
+                costo_semanal=e["costo_diario"] * 7, historico=hist, pasos=INV.pasos_por_que(e, p),
+                margen_usd=margen_usd, margen_pct=margen_usd / e["costo_acumulado"] if e["costo_acumulado"] else None,
+                region=u.get("region"), comparacion=None)
+    if _num_calc(q, "precio_anuncio", "El precio del anuncio"):
+        calc["comparacion"] = INV.comparacion_anuncio(float(q["precio_anuncio"]), e["sugerido"], dias)
+    return dict(vendida=False, unidad=u, evaluacion=e, parametros=p, tramos=INV.nombres_tramos(p), limites=p["tramos"],
+                desglose=INV.desglose_costo(u, p, dias), curvas=INV.serie(u, cu, p, grafico_hasta, stock=stock),
+                comparables=comps[:15], n_comparables=n_comps, historico_modelo=historico_modelo(familia), calc=calc,
+                historial=BD.historial_precios(ub["id"]) if ub else [], referencias=BD.historial_referencias(ub["id"]) if ub else [])
 
 
 def lista_inventario(q):
@@ -557,6 +688,12 @@ class Manejador(SimpleHTTPRequestHandler):
                     raise ValueError("La contraseña actual no es correcta")
                 BD.modificar_usuario(yo["usuario"], clave=q.get("nueva"))
                 return self._json({"ok": True}, cookie="")
+            if ruta == "/api/calculadora" and metodo == "POST":
+                return self._json(calcular_precio(self._cuerpo()))
+            if ruta == "/api/calculadora/unidades" and metodo == "GET":
+                return self._json(unidades_calculadora())
+            if ruta == "/api/calculadora/referencia" and metodo == "GET":
+                return self._json(referencia_auto(qs))
             if ruta == "/api/inventario" and metodo == "GET":
                 return self._json(lista_inventario(qs))
             if ruta == "/api/inventario" and metodo == "POST":
@@ -653,7 +790,7 @@ def main():
     ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 para que entren otras computadoras de la red")
     a = ap.parse_args()
     srv = ThreadingHTTPServer((a.host, a.puerto), Manejador)
-    print(f"\nPricing dinámico 1001 · Inventario listo en  http://localhost:{a.puerto}   (Ctrl+C para cerrar)")
+    print(f"\nPricing dinámico 1001 listo en  http://localhost:{a.puerto}   (Ctrl+C para cerrar)")
     if a.host == "0.0.0.0" and ip_local():
         print(f"Los demás empleados entran desde su computadora a:  http://{ip_local()}:{a.puerto}")
     if not BD.hay_usuarios():

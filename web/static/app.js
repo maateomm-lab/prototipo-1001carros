@@ -1,4 +1,4 @@
-/* Pricing dinámico 1001 · Inventario · lógica de la página. Habla con servidor.py (/api/...). */
+/* Pricing dinámico 1001 · lógica de la página. Habla con servidor.py (/api/...). */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const usd = v => v == null ? "–" : "$" + Math.round(v).toLocaleString("es-EC");
@@ -43,7 +43,7 @@ function mostrarLogin(setup = false) {
   $("#app").hidden = true; $("#login").hidden = false;
   $("#setup-campos").hidden = !setup;
   $("#f-login").dataset.setup = setup ? "1" : "";
-  $("#login-tit").textContent = setup ? "Configuración inicial" : "Pricing dinámico 1001 · Inventario";
+  $("#login-tit").textContent = setup ? "Configuración inicial" : "Pricing dinámico 1001";
   $("#login-sub").textContent = setup ? "Crea el usuario administrador (gerencia). Después podrás crear las cuentas de los asesores."
                                       : "Ingresa con tu usuario de 1001Carros.";
   $("#login-btn").textContent = setup ? "Crear administrador" : "Ingresar";
@@ -74,6 +74,7 @@ async function entrar(u) {
   if (!CAT) {
     CAT = await api("/api/catalogo");
     armarNuevaUnidad();
+    armarCalculadora();
   }
   router();
 }
@@ -97,19 +98,19 @@ $$(".modal").forEach(m => m.addEventListener("click", e => { if (e.target === m 
 document.addEventListener("keydown", e => { if (e.key === "Escape") $$(".modal").forEach(m => m.hidden = true); });
 
 // ------------------------------------------------------------------ navegación entre pantallas
-const VISTAS = ["inventario", "unidad", "tablero", "pruebas", "como", "parametros", "usuarios"];
+const VISTAS = ["calculadora", "inventario", "tablero", "pruebas", "como", "parametros", "usuarios"];
 window.addEventListener("hashchange", router);
 function router() {
   if (!YO) return;
-  let v = location.hash.replace("#/", "") || "inventario", arg = null;
+  let v = location.hash.replace("#/", "") || "calculadora", arg = null;
   if (v === "comite") v = "tablero";                 // el "Comité" pasó a llamarse Tablero de objetivos
-  if (v.startsWith("unidad/")) [v, arg] = v.split("/");
-  if (!VISTAS.includes(v) || ((v === "usuarios" || v === "parametros") && YO.rol !== "admin")) v = "inventario";   // incluye enlaces viejos (#/nueva, #/historial, #/resumen)
+  if (/^(unidad|calculadora)\/\d+$/.test(v)) { [, arg] = v.split("/"); v = "calculadora"; }     // #/unidad/ID (enlaces de la v4) abre la Calculadora
+  if (!VISTAS.includes(v) || ((v === "usuarios" || v === "parametros") && YO.rol !== "admin")) v = "calculadora";   // incluye enlaces viejos (#/nueva, #/historial, #/resumen)
   $$(".vista").forEach(s => s.hidden = s.dataset.vista !== v);
-  $$(".side-nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (v === "unidad" ? "inventario" : v)));
+  $$(".side-nav a").forEach(a => a.classList.toggle("on", a.dataset.v === v));
   if (v === "usuarios") cargarUsuarios();
   if (v === "inventario") cargarInventario();
-  if (v === "unidad") cargarUnidad(arg);
+  if (v === "calculadora") cargarCalculadora(arg);
   if (v === "tablero") cargarTablero();
   if (v === "pruebas") cargarPruebas();
   if (v === "parametros") cargarParametros();
@@ -293,7 +294,7 @@ $("#i-tabla thead").addEventListener("click", e => {
   inv.orden = { k: th.dataset.k, dir: inv.orden.k === th.dataset.k ? -inv.orden.dir : 1 };
   pintarInventario();
 });
-$("#i-tabla tbody").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = "#/unidad/" + tr.dataset.id; });
+$("#i-tabla tbody").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = "#/calculadora/" + tr.dataset.id; });
 
 // ------------------------------------------------------------------ nueva unidad (manual o desde un anuncio de 1001carros.com)
 let nu = null;      // { marca, familia, version }
@@ -354,86 +355,285 @@ $("#f-unidad").addEventListener("submit", async e => {
     const r = await api("/api/inventario", body);
     $("#m-unidad").hidden = true;
     toast(`${esc(nombreVeh(r.unidad))} agregada al inventario`);
-    location.hash = "#/unidad/" + r.unidad.id;
+    location.hash = "#/calculadora/" + r.unidad.id;
   } catch (err) { error($("#nu-err"), err.message); }
 });
 
-// ------------------------------------------------------------------ detalle de unidad
-let det = null;
-async function cargarUnidad(id) {
-  try { det = await api("/api/inventario/" + id); }
-  catch (e) { toast("⚠️ " + esc(e.message)); location.hash = "#/inventario"; return; }
-  pintarUnidad();
+// ================================================================== CALCULADORA (primera pestaña)
+// Un carro + sus días parados -> rango de precio de hoy con todo el razonamiento (motor de inventario.py, POST /api/calculadora).
+// Si se abre desde una unidad del inventario (#/calculadora/ID) se muestran las acciones sobre la unidad.
+let det = null;        // el cálculo que se está mostrando
+let detU = null;       // la unidad tal como está guardada (las acciones usan siempre este)
+const cal = { listo: false, unidadId: null, anuncio: null, refAuto: null, refEditada: false, stockEditado: false, sucio: false, pedido: 0 };
+const cm = { marca: null, familia: null, version: null };
+const REGION_DE = c => ["Guayaquil", "Manta", "Machala", "Cuenca", "Loja", "Portoviejo"].includes(c) ? "Costa/Austro" : "Sierra";
+const CAL_DEFECTO = { marca: "Toyota", familia: "toyota corolla", version: null, anio: 2023, km: 52990, costo: 19570, dias: 74, region: "Sierra" };
+const LS_CALC = "p1001-v5-calculadora";
+const fechaDeDias = d => { const f = new Date(); f.setDate(f.getDate() - d); return new Date(f.getTime() - f.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const diasDeFecha = s => Math.max(0, Math.round((new Date(hoyISO() + "T12:00") - new Date(s + "T12:00")) / 864e5));
+const marcarSucio = () => { cal.sucio = true; $("#cu-nota").hidden = !cal.unidadId; };
+
+function armarCalculadora() {
+  const marcas = Object.keys(CAT.marcas).sort((a, b) => CAT.marcas[b].n - CAT.marcas[a].n);
+  combo($("#cb-c-marca"), () => marcas.map(m => ({ id: m, txt: m, n: CAT.marcas[m].n })), it => cMarca(it.id));
+  combo($("#cb-c-modelo"), () => cm.marca ? CAT.marcas[cm.marca].modelos.map(f => ({ id: f.id, txt: f.nombre, n: f.n })) : [], it => cModelo(it.id));
+  $("#c-version").addEventListener("change", e => { cm.version = e.target.value || null; cal.anuncio = null; marcarSucio(); pedirReferencia(); });
+  $("#c-anio").addEventListener("change", () => { cal.anuncio = null; marcarSucio(); pedirReferencia(); });
+  $("#c-fecha").addEventListener("change", e => { if (e.target.value) $("#c-dias").value = diasDeFecha(e.target.value); marcarSucio(); });
+  $("#c-dias").addEventListener("input", e => { const d = parseInt(e.target.value, 10); if (d >= 0) $("#c-fecha").value = fechaDeDias(d); marcarSucio(); });
+  $("#c-stock").addEventListener("input", () => { cal.stockEditado = true; marcarSucio(); });
+  $("#c-ref").addEventListener("input", () => { cal.refEditada = $("#c-ref").value !== ""; marcarSucio(); hintCalc(); });
+  $("#c-ref").addEventListener("change", () => { if ($("#c-ref").value === "" && cal.refAuto) { cal.refEditada = false; $("#c-ref").value = cal.refAuto.p; hintCalc(); } });
+  ["c-km", "c-costo", "c-region"].forEach(id => $("#" + id).addEventListener("input", marcarSucio));
+  $("#f-calc").addEventListener("submit", e => { e.preventDefault(); calcular(true); });
+  $("#c-limpiar").addEventListener("click", limpiarCalc);
+  $("#c-partir").addEventListener("change", e => partirDe(e.target.value));
+  $("#cal-graf").addEventListener("toggle", () => { if ($("#cal-graf").open && det && !det.vendida) pintarGraficoCalc(); });
 }
 
-function pintarUnidad() {
-  const { unidad: u, evaluacion: e } = det, v = vendida(u);
-  $("#un-tit").textContent = nombreVeh(u);
-  $("#un-meta").innerHTML = `${estPill(u.estado)} ${esc(u.linea)} · ${esc(u.agencia || "sin agencia")}${u.region ? " (" + esc(u.region) + ")" : ""} · ${kmf(u.km)}${u.placa ? " · " + esc(u.placa) : ""}${u.color ? " · " + esc(u.color) : ""} · ingresó el ${diaF(u.fecha_ingreso)}`;
-  $("#un-activa").hidden = v; $("#un-vendida").hidden = !v;
+function cMarca(m) {
+  cm.marca = m; cm.familia = null; cm.version = null; cal.anuncio = null;
+  $("#cb-c-marca input").value = m;
+  const mi = $("#cb-c-modelo input"); mi.disabled = false; mi.value = ""; mi.placeholder = `Modelos de ${m}…`;
+  $("#c-version").disabled = true; $("#c-version").innerHTML = `<option value="">No sé / estándar</option>`;
+  marcarSucio();
+}
+function cModelo(id, version = null, pedir = true) {
+  const f = CAT.marcas[cm.marca].modelos.find(x => x.id === id); if (!f) return;
+  cm.familia = id; cm.version = version; cal.stockEditado = false;
+  if (pedir) cal.anuncio = null;
+  $("#cb-c-modelo input").value = f.nombre;
+  const sv = $("#c-version");
+  sv.innerHTML = `<option value="">No sé / estándar</option>` + f.versiones.map(v => `<option value="${esc(v.id)}">${esc(v.nombre)}</option>`).join("");
+  sv.disabled = !f.versiones.length; sv.value = version || "";
+  marcarSucio();
+  if (pedir) pedirReferencia();
+}
+
+// referencia que propone la regla (Apéndice E o, si el modelo no está en la muestra, el modelo como respaldo)
+async function pedirReferencia() {
+  cal.refEditada = false;
+  const anio = parseInt($("#c-anio").value, 10);
+  if (!cm.familia || !(anio >= 1980)) return;
+  const id = ++cal.pedido;
+  try {
+    const r = await api("/api/calculadora/referencia?" + new URLSearchParams({ marca: cm.marca, familia: cm.familia, version: cm.version || "", anio }));
+    if (id !== cal.pedido) return;
+    cal.refAuto = r;
+    if (!cal.refEditada) $("#c-ref").value = r.p;
+    if (!cal.stockEditado) $("#c-stock").value = r.stock_auto;
+    hintCalc();
+  } catch (e) { $("#c-hint").textContent = e.message; }
+}
+function hintCalc() {
+  const r = cal.refAuto;
+  const ref = cal.refEditada ? "Referencia manual: la escribiste tú (borra el campo para volver a la de la regla)."
+    : !r ? "La referencia se llena sola con la regla del Apéndice E."
+    : r.tipo === "apendice" ? `Referencia: ${r.fuente}.`
+    : "Este modelo no está en la muestra del Apéndice E: se propone la estimación del modelo (respaldo).";
+  $("#c-hint").textContent = `${ref} La fecha y los días se calculan uno desde el otro; el stock se llena contando el inventario.`;
+}
+
+// «Partir de…»: una unidad del inventario o uno de los 100 anuncios de 1001carros.com
+async function cargarPartir() {
+  try {
+    const [us, an] = await Promise.all([api("/api/calculadora/unidades"), ANUNCIOS ? Promise.resolve(ANUNCIOS) : api("/api/anuncios1001")]);
+    ANUNCIOS = an;
+    const actual = $("#c-partir").value;
+    $("#c-partir").innerHTML = `<option value="">Elegir una unidad del inventario o un anuncio de 1001carros.com…</option>`
+      + `<optgroup label="Unidades del inventario (${us.length})">${us.map(u => `<option value="u:${u.id}">${esc(u.vehiculo)} · ${u.dias} d · ${esc(u.agencia || "sin agencia")}</option>`).join("")}</optgroup>`
+      + `<optgroup label="Publicados en 1001carros.com (${an.length}) · 7-oct-2026">${an.map(a => `<option value="a:${a.idx}">${esc(a.marca)} ${esc(a.modelo)} ${a.anio} · ${Math.round(a.km).toLocaleString("es-EC")} km · ${usdE(a.precio)} · ${esc(a.ciudad)}</option>`).join("")}</optgroup>`;
+    $("#c-partir").value = actual;
+  } catch (e) { /* el selector queda vacío; el formulario sigue funcionando */ }
+}
+async function partirDe(v) {
+  if (!v) return;
+  const [t, id] = v.split(":");
+  if (t === "u") { location.hash = "#/calculadora/" + id; return; }
+  const a = (ANUNCIOS || []).find(x => String(x.idx) === id); if (!a) return;
+  cal.unidadId = null; detU = null;
+  history.replaceState(null, "", "#/calculadora");
+  cMarca(a.marca); cModelo(a.familia, null, false);
+  cal.anuncio = a;
+  $("#c-anio").value = a.anio; $("#c-km").value = Math.round(a.km); $("#c-costo").value = a.costo; $("#c-region").value = REGION_DE(a.ciudad);
+  if (!(parseInt($("#c-dias").value, 10) >= 0)) { $("#c-dias").value = 30; $("#c-fecha").value = fechaDeDias(30); }
+  $("#c-partir-hint").textContent = `${a.modelo} · publicado en 1001carros.com a ${usdE(a.precio)} (${a.ciudad}). Costo estimado = precio ÷ 1,12 = ${usdE(a.costo)}. Cambia los días para ver cómo se mueve el precio.`;
+  await pedirReferencia();
+  cal.sucio = false;
+  calcular(false);
+}
+
+function llenarDesdeUnidad(r) {
+  const u = r.unidad, e = r.evaluacion;
+  cMarca(u.marca); cModelo(u.familia, u.version, false);
+  $("#c-anio").value = u.anio; $("#c-km").value = u.km ?? ""; $("#c-costo").value = (u.costo_compra || 0) + (u.reacondicionamiento || 0);
+  $("#c-dias").value = e.dias; $("#c-fecha").value = fechaDeDias(e.dias); $("#c-region").value = u.region || "Sierra";
+  $("#c-partir-hint").textContent = `Unidad del inventario: ${nombreVeh(u)}${u.agencia ? " · " + u.agencia : ""}. Cambia los datos para simular otro escenario; las acciones de abajo usan lo guardado.`;
+  if (!r.vendida) {
+    $("#c-stock").value = r.calc.stock; cal.stockEditado = false; cal.refAuto = r.calc.referencia_auto;
+    cal.refEditada = u.mercado_manual != null;
+    $("#c-ref").value = cal.refEditada ? u.mercado_manual : cal.refAuto.p;
+    hintCalc();
+  }
+  cal.sucio = false; $("#cu-nota").hidden = true;
+}
+
+async function cargarCalculadora(id) {
+  cargarPartir();
+  if (id) {
+    try { detU = await api("/api/calculadora", { unidad_id: +id }); }
+    catch (e) { toast("⚠️ " + esc(e.message)); location.hash = "#/inventario"; return; }
+    cal.unidadId = +id; cal.anuncio = null; cal.listo = true;
+    $("#c-partir").value = "u:" + id; error($("#c-err"), "");
+    llenarDesdeUnidad(detU); det = detU; pintarCalc();
+    return;
+  }
+  if (cal.listo) return;                       // el menú no borra lo que había en pantalla
+  cal.listo = true;
+  let g = CAL_DEFECTO;
+  try { g = { ...CAL_DEFECTO, ...(JSON.parse(localStorage.getItem(LS_CALC) || "null") || {}) }; } catch (_) {}
+  if (!CAT.marcas[g.marca] || !CAT.marcas[g.marca].modelos.some(f => f.id === g.familia)) g = CAL_DEFECTO;
+  cMarca(g.marca); cModelo(g.familia, g.version, false);
+  $("#c-anio").value = g.anio; $("#c-km").value = g.km ?? ""; $("#c-costo").value = g.costo; $("#c-dias").value = g.dias; $("#c-fecha").value = fechaDeDias(+g.dias || 0);
+  $("#c-region").value = g.region || "Sierra";
+  await pedirReferencia();
+  if (g.ref) { $("#c-ref").value = g.ref; cal.refEditada = true; hintCalc(); }
+  cal.sucio = false;
+  calcular(false);
+}
+
+function limpiarCalc() {
+  cal.unidadId = null; cal.anuncio = null; cal.refAuto = null; cal.refEditada = false; cal.stockEditado = false; detU = null; det = null; cm.marca = cm.familia = cm.version = null;
+  history.replaceState(null, "", "#/calculadora");
+  $("#f-calc").reset();
+  $("#cb-c-marca input").value = ""; $("#cb-c-modelo input").value = ""; $("#cb-c-modelo input").disabled = true; $("#cb-c-modelo input").placeholder = "Elige primero la marca";
+  $("#c-version").disabled = true; $("#c-version").innerHTML = `<option value="">No sé / estándar</option>`;
+  $("#c-dias").value = 0; $("#c-fecha").value = hoyISO(); $("#c-partir").value = ""; error($("#c-err"), "");
+  $("#c-partir-hint").textContent = "Al elegir uno se llenan los datos. De un anuncio de 1001carros.com, el costo se estima como precio publicado ÷ 1,12 (margen de ingreso de la empresa) y el precio publicado queda para compararlo.";
+  hintCalc();
+  $("#cal-unidad").hidden = true; $("#un-vendida").hidden = true; $("#cal-lleno").hidden = true; $("#cal-vacio").hidden = false;
+  $("#cal-vacio").innerHTML = "Completa los datos y pulsa <b>Calcular precio</b>.";
+  ["un-costo", "un-mercado", "un-comps-card", "un-hist-card", "un-refs-card"].forEach(id => $("#" + id).hidden = true);
+  try { localStorage.removeItem(LS_CALC); } catch (_) {}
+}
+
+async function calcular(desplazar) {
+  error($("#c-err"), "");
+  const costo = +$("#c-costo").value, dias = parseInt($("#c-dias").value, 10);
+  if (detU && detU.vendida) return error($("#c-err"), "Esta unidad ya está vendida: no hay precio que calcular");
+  if (!cm.familia) return error($("#c-err"), "Elige la marca y el modelo de la lista");
+  if (!(+$("#c-anio").value >= 1980)) return error($("#c-err"), "Escribe el año del carro");
+  if (!(costo > 0)) return error($("#c-err"), "Escribe un costo de recepción mayor que cero");
+  if (!(dias >= 0)) return error($("#c-err"), "Escribe los días en inventario (0 o más)");
+  const body = { marca: cm.marca, familia: cm.familia, version: cm.version || "", anio: +$("#c-anio").value, km: $("#c-km").value, costo_compra: costo,
+    dias, stock: $("#c-stock").value, region: $("#c-region").value };
+  if (cal.unidadId) body.unidad_id = cal.unidadId;
+  if (cal.refEditada) body.mercado_manual = $("#c-ref").value;
+  if (cal.anuncio) { body.precio_anuncio = cal.anuncio.precio; body.precio_publicado = cal.anuncio.precio; }
+  const b = $("#c-calcular"); b.disabled = true;
+  try {
+    det = await api("/api/calculadora", body);
+    pintarCalc();
+    if (!cal.unidadId) try { localStorage.setItem(LS_CALC, JSON.stringify({ marca: cm.marca, familia: cm.familia, version: cm.version, anio: body.anio, km: body.km, costo, dias, region: body.region, ref: cal.refEditada ? $("#c-ref").value : null })); } catch (_) {}
+    if (desplazar && angosta()) $("#cal-res").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { error($("#c-err"), e.message); }
+  finally { b.disabled = false; }
+}
+
+const TRAMO_COLOR = { verde: "t-verde", amarillo: "t-amarillo", naranja: "t-naranja", rojo: "t-rojo" };
+const mesDia = iso => new Date(iso + "T12:00").toLocaleDateString("es-EC", { day: "numeric", month: "short" });
+
+function pintarCalc() {
+  const sold = !!det.vendida, { unidad: u, evaluacion: e } = det, unidad = !!cal.unidadId;
+  $("#cal-vacio").hidden = !sold; $("#cal-lleno").hidden = sold;
+  $("#un-vendida").hidden = !(unidad && sold); $("#cal-unidad").hidden = !(unidad && !sold);
+  $("#un-hist-card").hidden = !unidad; $("#un-ref-btn").hidden = !unidad || sold;
   $("#un-historial").innerHTML = det.historial.map(h => `<tr><td class="nw">${fechaCorta(h.fecha)}</td>
     <td class="num">${usdE(h.precio_anterior)}</td><td class="num"><b>${usdE(h.precio_nuevo)}</b></td><td class="num">${usdE(h.precio_sugerido)}</td>
     <td>${esc(h.motivo || "–")}</td><td>${esc(h.nombre_usuario || h.usuario || "–")}</td></tr>`).join("");
-  pintarCostoMercado(v);
-  if (v) {
+  pintarCostoMercado(sold);
+  $("#un-costo").hidden = false; $("#un-comps-card").hidden = sold;
+  if (sold) {
+    $("#cal-vacio").innerHTML = `Esta unidad ya fue <b>${esc(u.estado.toLowerCase())}</b>: no hay precio que calcular.`;
     const dif = u.precio_venta - u.precio_publicado;
-    $("#un-vendida").innerHTML = `<h3 class="card-tit">${esc(u.estado)} el ${diaF(u.fecha_venta)}</h3><div class="vend-grid">
+    $("#un-vendida").innerHTML = `<h3 class="card-tit">${esc(nombreVeh(u))} · ${esc(u.estado)} el ${diaF(u.fecha_venta)}</h3><div class="vend-grid">
       <div><small>Precio de venta</small><b>${usdE(u.precio_venta)}</b></div><div><small>Días en piso</small><b>${e.dias}</b></div>
       <div><small>Costo acumulado a la venta</small><b>${usdE(e.costo_acumulado)}</b></div>
       <div><small>Utilidad real</small><b class="${e.utilidad >= 0 ? "up" : "down"}">${usdE(e.utilidad)}</b></div></div>
-      <p class="hint">Último precio publicado: ${usdE(u.precio_publicado)} (${dif >= 0 ? "vendió " + usdE(dif) + " sobre" : "descuento de " + usdE(-dif) + " frente a"} lo publicado).</p>`;
+      <p class="hint">Último precio publicado: ${usdE(u.precio_publicado)} (${dif >= 0 ? "vendió " + usdE(dif) + " sobre" : "descuento de " + usdE(-dif) + " frente a"} lo publicado).</p>
+      <div class="row-btns"><button class="btn btn-ghost" type="button" id="uv-estado">Cambiar estado</button><button class="btn btn-ghost" type="button" id="uv-editar">✎ Editar datos</button></div>`;
     return;
   }
-  $("#un-sugerido").textContent = usdE(e.sugerido);
-  $("#un-rec").innerHTML = recPill(e.recomendacion);
-  $("#un-caso").innerHTML = casoPill(e.caso, e.caso_nombre);
-  $("#un-sem").innerHTML = `${semDot(e.semaforo)} <small>${SEM[e.semaforo]}</small>`;
-  pintarBandaCaminos();
-  $("#un-texto").textContent = e.texto;
-  const igual = e.recomendacion === "Mantener";          // dentro de la banda: se confirma el precio actual
-  $("#un-aplicar").textContent = igual ? "Confirmar revisión (mantener)" : `Aplicar sugerido ${usdE(e.sugerido)}`;
-  const eq = e.dia_equilibrio == null ? ["Sin riesgo", "el mercado cubre el costo en los próximos meses", "bien"]
-    : e.dias_hasta_equilibrio <= 0 ? [`Día ${e.dia_equilibrio}`, `ya pasó (${diaF(e.fecha_equilibrio)}): deja de ganar plata`, "mal"]
-    : [`Día ${e.dia_equilibrio}`, `${diaF(e.fecha_equilibrio)} · deja de ganar plata (en ${e.dias_hasta_equilibrio} d)`, ""];
-  const datos = [
-    ["Días en piso", e.dias, `tramo ${e.tramo_nombre} días` + (e.revision_vencida ? " · revisión vencida" : ""), e.revision_vencida ? "mal" : ""],
-    ["Precio publicado", usdE(u.precio_publicado), `${pctE(e.pct_vs_mercado)} vs mercado`, ""],
-    [e.referencia_manual ? "Mercado (referencia manual)" : "Valor de mercado", usdE(e.mercado), `${esc(e.referencia.fuente)} · rango ${usdE(e.bajo50)} – ${usdE(e.alto50)}`, ""],
-    ["Confianza del mercado", e.confianza.nivel[0].toUpperCase() + e.confianza.nivel.slice(1), e.referencia_manual ? "cubierta con referencia manual" : e.referencia.tipo === "apendice" ? esc(e.referencia.fuente) : `${e.confianza.n_modelo} avisos de la familia`, e.confianza.nivel === "baja" && !e.referencia_manual ? "mal" : e.confianza.nivel === "alta" ? "bien" : ""],
-    ["Costo acumulado (equilibrio)", usdE(e.costo_acumulado), `${usd2E(e.costo_diario)} por día`, ""],
-    ["Utilidad si vende hoy", usdE(e.utilidad_publicado), `al sugerido: ${usdE(e.utilidad_sugerido)}`, e.utilidad_publicado >= 0 ? "bien" : "mal"],
-    ["Punto de equilibrio", eq[0], eq[1], eq[2]],
-    ["Competencia", e.n_comparables ?? "–", "avisos parecidos en Patio Tuerca", ""],
+  const c = det.calc, p = det.parametros, esc_ = c.escalera.find(x => x.actual);
+  // 1. precio sugerido hoy
+  $("#cal-precio").textContent = usdE(e.sugerido);
+  $("#cal-margen").textContent = `Margen proyectado ${pct1(c.margen_pct)} (${usdE(c.margen_usd)} sobre el costo acumulado).`;
+  const pill = $("#cal-pill"); pill.className = "pill " + TRAMO_COLOR[esc_.color]; pill.textContent = `${esc_.estado} · día ${e.dias}`;
+  // 2. rango: mínimo · objetivo · máximo
+  const unico = e.minimo === e.maximo;
+  const notas = { minimo: e.caso === "ganancia_reducida" ? "punto de equilibrio" : unico ? "igual al objetivo" : "piso de negociación", objetivo: "precio sugerido", maximo: "precio de publicación" };
+  $("#cal-banda").innerHTML = e.banda.map(b => `<div class="${b.clave === "objetivo" ? "medio" : ""}"><small>${b.nombre}</small><b>${usdE(b.precio)}</b>
+    <span class="${b.utilidad >= 0 ? "up" : "down"}">${b.utilidad >= 0 ? "deja " + usdE(b.utilidad) : "pierde " + usdE(-b.utilidad)} · ${pct1(b.pct)}</span><em>${notas[b.clave]}</em></div>`).join("");
+  $("#cal-banda-nota").innerHTML = unico ? `<b>El rango se cierra:</b> el mínimo y el máximo son el mismo precio (${usdE(e.sugerido)}); no hay margen para negociar sin pasar por el comité.`
+    : `El asesor puede aceptar hasta el <b>mínimo</b> sin pasar por el comité; el <b>máximo</b> es el precio de publicación. Fuera del rango es una excepción.`;
+  // 3. datos del cálculo
+  const rev = c.proxima_revision.fecha ? `${mesDia(c.proxima_revision.fecha)} (día ${c.proxima_revision.dia}: cambia de tramo)` : `cada semana en el comité (cada ${c.proxima_revision.cada_dias} días)`;
+  const aj = e.ajuste_stock ? ` − ${pct1(e.ajuste_stock)} por stock (${e.stock} unidades)` : "";
+  const fila = [
+    ["Costo de recepción", usdE(e.costo_base)],
+    ["Margen objetivo del tramo", pct1(e.margen_tramo) + aj],
+    ["Referencia de mercado", `${usdE(e.mercado)} × ${(1 + e.tope_tramo).toFixed(2).replace(".", ",")} = ${usdE(e.tope_mercado)} (tope)<small>${esc(e.referencia.fuente)}</small>`],
+    ["Costo acumulado", `${usdE(e.costo_acumulado)} (${usd2E(e.costo_diario)} por día)`],
+    ["Cada semana más de espera cuesta", usdE(c.costo_semanal)],
+    ["Piso de ganancia", `${usdE(e.piso_ganancia)} (costo acumulado + ${pct1(p.margen_minimo)})`],
+    ["Próxima revisión", rev],
   ];
-  $("#un-datos").innerHTML = datos.map(([t, b, s, c]) => `<div class="${c}"><small>${t}</small><b>${b}</b><span>${s}</span></div>`).join("");
-  pintarGraficoUnidad();
+  $("#cal-kv").innerHTML = fila.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("");
+  // 4. acción del tramo · 5. histórico del modelo
+  $("#cal-accion").innerHTML = `<b>Acción:</b> ${esc(e.accion_comercial)}`;
+  $("#cal-hist").textContent = c.historico.texto;
+  // 6. escalera de precio según los días
+  $("#cal-escalera").innerHTML = c.escalera.map(x => `<div class="esc ${TRAMO_COLOR[x.color]}${x.actual ? " now" : ""}"><b>${usdE(x.precio)}</b><span>${esc(x.nombre)} días</span><em>${pct1(x.margen_pct)} · ${usdE(x.margen_usd)}</em></div>`).join("");
+  // 7. los dos caminos
+  const cm_ = e.caminos, largo = cm_.modo === "espera_larga", gana = cm_.diferencia >= 0;
+  const caja = (cls, tit, v, txt) => `<div class="${cls}"><small>${tit}</small><b class="${v >= 0 ? "" : "down"}">${usdE(v)}</b><span>${txt}</span></div>`;
+  $("#cal-caminos").innerHTML =
+    caja(gana ? "bueno" : "", "Camino 1 · vender en este tramo", cm_.vender_hoy, `Al precio sugerido (${usdE(e.sugerido)}) menos el costo acumulado (${usdE(e.costo_acumulado)}).`)
+    + caja(gana ? "" : "bueno", largo ? `Camino 2 · dejarlo pasar a ${cm_.hasta_dia} días` : "Camino 2 · esperar 30 días más", cm_.esperar,
+        largo ? `Margen de ${pct1(cm_.margen_espera)} (${usdE(cm_.margen_usd)}) a los ${cm_.hasta_dia} días, menos ${usdE(cm_.costo_espera)} de costo de capital por ${cm_.dias_extra} días más.`
+              : `Precio de la regla en el día ${cm_.hasta_dia} menos el costo acumulado de ese día (${usdE(cm_.costo_espera)} más de costo).`)
+    + `<div class="ancho ${gana ? "bueno" : ""}"><small>${gana ? "Diferencia a favor de vender ahora" : "Diferencia a favor de esperar"}</small><b>${usdE(Math.abs(cm_.diferencia))}</b>
+       <span>${gana ? "Es la cifra que suma el business case por cada unidad que deja de envejecer." : "Con estos números esperar deja más; revisar el costo o la referencia de mercado."}</span></div>`;
+  $("#cal-caminos-fuente").textContent = largo
+    ? `${p.dias_espera} días es el promedio de las unidades que pasan de 120 días y ${pct1(p.margen_espera)} el margen con que se venden (Entrega 1).`
+    : `La unidad ya pasó el día ${p.dias_espera}: se compara con esperar 30 días más.`;
+  // 8. por qué este precio · 9. comparación con el anuncio
+  $("#cal-pasos").innerHTML = c.pasos.map(t => `<li>${esc(t)}</li>`).join("");
+  $("#cal-comp").hidden = !c.comparacion; $("#cal-comp").textContent = c.comparacion || "";
+  // 10. segunda opinión del modelo y gráfico plegable
+  const so = e.referencia.segunda_opinion;
+  $("#cal-seg").innerHTML = so
+    ? `<div class="${so.aviso ? "mal" : ""}"><b>${usdE(so.valor)}</b><span>${esc(so.texto)}${so.aviso ? "" : ". La referencia y el modelo van en la misma línea."}</span></div>`
+    : `<div><b>${usdE(e.mercado)}</b><span>${esc(e.referencia.etiqueta || "El valor sale del modelo")}: no hay otra referencia con la que compararlo.</span></div>`;
+  if ($("#cal-graf").open) pintarGraficoCalc();
+  // acciones sobre la unidad
+  if (unidad) pintarUnidadCard();
 }
 
-// banda de negociación (mínimo · objetivo · máximo) y los dos caminos (vender hoy o seguir esperando)
-function pintarBandaCaminos() {
-  const { unidad: u, evaluacion: e, parametros: p } = det;
-  const unico = e.minimo === e.maximo;
-  $("#un-banda-sub").innerHTML = e.caso === "perdida_inevitable"
-    ? "No hay margen para negociar: cualquier otro precio pasa por el comité."
-    : `El asesor puede aceptar hasta el <b>mínimo</b> sin pasar por el comité; el <b>máximo</b> es el precio de publicación. Fuera de la banda es una excepción.`;
-  const notas = { minimo: e.caso === "ganancia_reducida" ? "punto de equilibrio" : unico ? "igual al objetivo" : "piso de negociación", objetivo: "precio sugerido", maximo: "precio de publicación" };
-  $("#un-banda").innerHTML = e.banda.map(b => `<div class="${b.clave === "objetivo" ? "medio" : ""}"><small>${b.nombre}</small><b>${usdE(b.precio)}</b>
-    <span class="${b.utilidad >= 0 ? "up" : "down"}">${b.utilidad >= 0 ? "deja " + usdE(b.utilidad) : "pierde " + usdE(-b.utilidad)} · ${pct1(b.pct)}</span><em>${notas[b.clave]}</em></div>`).join("");
-  const enB = e.en_banda, pub = u.precio_publicado;
-  $("#un-accion").innerHTML = `<b>Publicado hoy: ${usdE(pub)}</b> (${enB ? "dentro de la banda" : pub > e.maximo ? "sobre el máximo" : "bajo el mínimo"}). `
-    + `Estado <b>${esc(e.estado)}</b> · tramo ${e.tramo_nombre} días: ${esc(e.accion_comercial)}`;
-  const c = e.caminos, largo = c.modo === "espera_larga", gana = c.diferencia >= 0;
-  const caja = (cls, tit, v, txt) => `<div class="${cls}"><small>${tit}</small><b class="${v >= 0 ? "" : "down"}">${usdE(v)}</b><span>${txt}</span></div>`;
-  $("#un-caminos").innerHTML =
-    caja(gana ? "bueno" : "", "Camino 1 · vender hoy", c.vender_hoy, `Al precio sugerido (${usdE(e.sugerido)}) menos el costo acumulado (${usdE(e.costo_acumulado)}).`)
-    + caja(gana ? "" : "bueno", largo ? `Camino 2 · esperar hasta el día ${c.hasta_dia}` : "Camino 2 · esperar 30 días más", c.esperar,
-        largo ? `Margen de ${pct1(c.margen_espera)} (${usdE(c.margen_usd)}) menos ${usdE(c.costo_espera)} de costo por ${c.dias_extra} días más.`
-              : `Precio de la regla en el día ${c.hasta_dia} menos el costo acumulado de ese día (${usdE(c.costo_espera)} más de costo).`)
-    + `<div class="ancho ${gana ? "bueno" : ""}"><small>${gana ? "Diferencia a favor de vender hoy" : "Diferencia a favor de esperar"}</small><b>${usdE(Math.abs(c.diferencia))}</b>
-       <span>${gana ? "Es lo que se deja de perder por cada unidad que no envejece." : "Con estos números esperar deja más; revisar el costo o la referencia de mercado."}</span></div>`;
-  $("#un-caminos-fuente").textContent = largo
-    ? `${p.dias_espera} días es el promedio de las unidades que pasan de 120 días y ${pct1(p.margen_espera)} el margen con que se venden (Entregable 1; 1001 Carros, 2026g, 2026k).`
-    : `La unidad ya pasó el día ${p.dias_espera}: se compara con esperar 30 días más.`;
+function pintarUnidadCard() {
+  const su = detU.unidad, e = det.evaluacion, dif = su.precio_publicado - e.sugerido;
+  $("#cu-badge").textContent = `${nombreVeh(su)} · ${su.agencia || "sin agencia"}`;
+  const kv = [
+    ["Precio publicado hoy", usdE(su.precio_publicado)],
+    ["Precio objetivo", usdE(e.sugerido)],
+    ["Diferencia", `${dif >= 0 ? "+" : "−"}${usdE(Math.abs(dif))} (${pct1(Math.abs(dif) / e.sugerido)}) ${recPill(e.recomendacion)}`],
+    ["Estado de la unidad", `${estPill(su.estado)} ${semDot(detU.evaluacion.semaforo)} ${SEM[detU.evaluacion.semaforo] || ""}`],
+    ["Última revisión", su.ultima_revision ? diaF(su.ultima_revision) : "sin registro"],
+  ];
+  $("#cu-kv").innerHTML = kv.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("");
+  const h = detU.historial.slice(0, 4);
+  $("#cu-hist").innerHTML = "<b>Historial de la unidad</b><br>" + (h.length ? h.map(x => `${fechaCorta(x.fecha)} · ${x.precio_anterior != null ? usdE(x.precio_anterior) + " → " : ""}${usdE(x.precio_nuevo)}${x.motivo ? " · " + esc(x.motivo) : ""}`).join("<br>") : "Sin acciones registradas.");
+  $("#cu-nota").hidden = !cal.sucio;
 }
 
 // costo diario (desglose), confianza del mercado, referencia manual y comparables
@@ -530,19 +730,20 @@ function fraseGrafico() {
   return t;
 }
 
-function pintarGraficoUnidad() {
-  const { unidad: u, evaluacion: e, curvas: cv, historial: h, parametros: p } = det;
+function pintarGraficoCalc() {
+  const { unidad: u, evaluacion: e, curvas: cv, parametros: p } = det;
+  const pubReal = !!(cal.unidadId || cal.anuncio);        // sin unidad ni anuncio el publicado es solo un supuesto: no se dibuja
   const diaDe = f => Math.max(0, Math.round((new Date(String(f).slice(0, 10) + "T12:00") - new Date(u.fecha_ingreso + "T12:00")) / 864e5));
   const xmax = cv[cv.length - 1].d, vis = cv.filter(r => r.d <= xmax);
   const eq = e.dia_equilibrio != null && e.dia_equilibrio <= xmax ? cv[e.dia_equilibrio] : null;
   const pt = (k, f) => cv.map(r => ({ x: r.d, y: f ? f(r) : r[k] }));
   // eje Y ajustado a los datos con 5 % de margen (no empieza en cero)
-  const vals = vis.flatMap(r => [r.mercado, r.bajo50, r.alto50, r.costo, r.piso, r.sugerido]).concat([u.precio_publicado]);
+  const vals = vis.flatMap(r => [r.mercado, r.bajo50, r.alto50, r.costo, r.piso, r.sugerido]).concat(pubReal ? [u.precio_publicado] : []);
   const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.05 || hi * 0.05;
   const rango = hi - lo + 2 * pad, paso = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000].find(s => rango / s <= 8) || 20000;   // cifras redondas en el eje
   const corto = angosta();
   const linea = (label, data, color, extra = {}) => ({ label, data, borderColor: color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, fill: false, ...extra });
-  grafico("ch-unidad", {
+  grafico("ch-calc", {
     type: "line",
     plugins: [fondoTramos],
     data: { datasets: [
@@ -552,7 +753,7 @@ function pintarGraficoUnidad() {
       { label: "Zona sin ganancia", data: pt("piso"), borderWidth: 0, pointRadius: 0, fill: "origin", backgroundColor: "rgba(220,38,38,.10)" },
       linea("Punto de equilibrio (costo acumulado)", pt("costo"), CG.rojo, { borderDash: [2, 3], borderWidth: 1.8, etq: corto ? "Equilibrio" : "Equilibrio (costo)" }),
       linea("Precio sugerido", pt("sugerido"), CG.sug, { stepped: true, borderWidth: 3.6, etq: corto ? "Sugerido" : "Precio sugerido" }),
-      { label: "Precio publicado hoy", type: "scatter", data: [{ x: e.dias, y: u.precio_publicado }], pointStyle: "circle", pointRadius: 8, pointHoverRadius: 9, backgroundColor: CG.pub, borderColor: "#fff", borderWidth: 2, pubPunto: true },
+      { label: "Precio publicado hoy", type: "scatter", data: pubReal ? [{ x: e.dias, y: u.precio_publicado }] : [], pointStyle: "circle", pointRadius: 8, pointHoverRadius: 9, backgroundColor: CG.pub, borderColor: "#fff", borderWidth: 2, pubPunto: true },
       { label: "Desde aquí ya no hay ganancia", type: "scatter", data: eq ? [{ x: eq.d, y: eq.costo }] : [], pointStyle: "rectRot", pointRadius: 9, pointHoverRadius: 10, backgroundColor: CG.rojo, borderColor: "#fff", borderWidth: 2 },
       // series secundarias: arrancan ocultas, se activan desde la leyenda
       linea("Objetivo por margen", pt("objetivo"), CG.sug, { hidden: true, borderDash: [8, 5], borderWidth: 1.4, tension: .2 }),
@@ -579,28 +780,41 @@ function pintarGraficoUnidad() {
                      ticks: { stepSize: paso, callback: v => usdE(v), maxTicksLimit: corto ? 6 : 9 } } },
     },
   });
-  $("#un-grafico-frase").textContent = fraseGrafico();
+  $("#cal-grafico-frase").textContent = fraseGrafico();
 }
 
+const recargarUnidad = () => cargarCalculadora(cal.unidadId);
 $("#un-aplicar").addEventListener("click", async () => {
   const b = $("#un-aplicar"); b.disabled = true;
   try {
-    det = await api(`/api/inventario/${det.unidad.id}/precio`, { aplicar_sugerido: true });
-    pintarUnidad(); toast(`Precio de revisión registrado: ${usdE(det.unidad.precio_publicado)}`);
+    await api(`/api/inventario/${detU.unidad.id}/precio`, { aplicar_sugerido: true });
+    await recargarUnidad(); toast(`Precio de revisión registrado: ${usdE(detU.unidad.precio_publicado)}`);
   } catch (err) { toast("⚠️ " + esc(err.message)); }
   finally { b.disabled = false; }
 });
+$("#un-confirmar").addEventListener("click", async () => {          // confirmar revisión: mantener el precio publicado (con motivo si no está dentro de la banda)
+  const e = detU.evaluacion;
+  if (e.recomendacion !== "Mantener") {
+    mantener = String(detU.unidad.id); mantenerDesdeCalc = true; $("#f-mantener").reset(); error($("#mt-err"), "");
+    $("#mt-sub").innerHTML = `<b>${esc(nombreVeh(detU.unidad))}</b>: se mantiene en ${usdE(detU.unidad.precio_publicado)} aunque el sugerido es ${usdE(e.sugerido)}. Queda como excepción para que el administrador la apruebe.`;
+    $("#m-mantener").hidden = false; return;
+  }
+  try {
+    await api(`/api/inventario/${detU.unidad.id}/precio`, { mantener: true, motivo: "Revisión confirmada: el precio publicado está dentro de la banda" });
+    await recargarUnidad(); toast("Revisión confirmada");
+  } catch (err) { toast("⚠️ " + esc(err.message)); }
+});
 
 function avisoPrecio() {
-  const e = det.evaluacion, f = $("#f-precio"), nuevo = +f.elements.precio.value;
+  const e = detU.evaluacion, f = $("#f-precio"), nuevo = +f.elements.precio.value;
   const lejos = nuevo > 0 && (nuevo < e.minimo - .5 || nuevo > e.maximo + .5), util = nuevo - e.costo_acumulado;
   $("#pr-aviso").innerHTML = nuevo > 0 ? `${util >= 0 ? "Deja " + usdE(util) : "<span class='down'>Pierde " + usdE(-util) + "</span>"} sobre el costo acumulado; ${pctE(nuevo / e.sugerido - 1, 1)} frente al objetivo.`
     + (lejos ? ` <b>${nuevo < e.minimo ? "Bajo el mínimo" : "Sobre el máximo"} de la banda: es una excepción para el comité, escribe el motivo.</b>` : "") : "";
   f.elements.motivo.required = lejos;
 }
 $("#un-otro").addEventListener("click", () => {
-  const e = det.evaluacion, f = $("#f-precio"); f.reset();
-  $("#pr-sug").innerHTML = `Sugerido: <b>${usdE(e.sugerido)}</b> · publicado hoy: ${usdE(det.unidad.precio_publicado)}. Sin justificar se permite dentro de la banda <b>${usdE(e.minimo)} – ${usdE(e.maximo)}</b>.`;
+  const e = detU.evaluacion, f = $("#f-precio"); f.reset();
+  $("#pr-sug").innerHTML = `Sugerido: <b>${usdE(e.sugerido)}</b> · publicado hoy: ${usdE(detU.unidad.precio_publicado)}. Sin justificar se permite dentro de la banda <b>${usdE(e.minimo)} – ${usdE(e.maximo)}</b>.`;
   f.elements.precio.value = Math.round(e.sugerido); error($("#pr-err"), ""); avisoPrecio();
   $("#m-precio").hidden = false;
 });
@@ -608,27 +822,29 @@ $("#f-precio").elements.precio.addEventListener("input", avisoPrecio);
 $("#f-precio").addEventListener("submit", async e => {
   e.preventDefault();
   try {
-    det = await api(`/api/inventario/${det.unidad.id}/precio`, { precio: +e.target.elements.precio.value, motivo: e.target.elements.motivo.value });
-    $("#m-precio").hidden = true; pintarUnidad(); toast(`Precio actualizado a ${usdE(det.unidad.precio_publicado)}`);
+    await api(`/api/inventario/${detU.unidad.id}/precio`, { precio: +e.target.elements.precio.value, motivo: e.target.elements.motivo.value });
+    $("#m-precio").hidden = true; await recargarUnidad(); toast(`Precio actualizado a ${usdE(detU.unidad.precio_publicado)}`);
   } catch (err) { error($("#pr-err"), err.message); }
 });
 
 function camposVenta() { $("#vt-campos").hidden = !["Vendida", "Liquidada"].includes($("#f-venta").elements.estado_inv.value); }
 $("#f-venta").elements.estado_inv.addEventListener("change", camposVenta);
-$("#un-vender").addEventListener("click", () => {
-  const f = $("#f-venta"), u = det.unidad; f.reset();
+function abrirVender() {
+  const f = $("#f-venta"), u = detU.unidad; f.reset();
   f.elements.estado_inv.value = vendida(u) ? u.estado : "Vendida";
   f.elements.fecha_venta.value = u.fecha_venta || hoyISO();
   f.elements.precio_venta.value = Math.round(u.precio_venta || u.precio_publicado);
   error($("#vt-err"), ""); camposVenta(); $("#m-venta").hidden = false;
-});
+}
+$("#un-vender").addEventListener("click", abrirVender);
+$("#un-vendida").addEventListener("click", e => { if (e.target.closest("#uv-estado")) abrirVender(); else if (e.target.closest("#uv-editar")) abrirEditar(false); });
 $("#f-venta").addEventListener("submit", async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target)); d.estado = d.estado_inv; delete d.estado_inv;
   if (!["Vendida", "Liquidada"].includes(d.estado)) { delete d.fecha_venta; delete d.precio_venta; }
   try {
-    det = await api(`/api/inventario/${det.unidad.id}`, d);
-    $("#m-venta").hidden = true; pintarUnidad(); toast("Estado actualizado: " + esc(det.unidad.estado));
+    await api(`/api/inventario/${detU.unidad.id}`, d);
+    $("#m-venta").hidden = true; await recargarUnidad(); toast("Estado actualizado: " + esc(detU.unidad.estado));
   } catch (err) { error($("#vt-err"), err.message); }
 });
 
@@ -637,7 +853,7 @@ const CAMPOS_ED = ["pn_con_iva", "mercado_manual", "fuente_mercado_manual", "cos
   "costo_capital_manual", "costo_seguro_manual", "costo_espacio_manual", "costo_lavado_manual", "linea", "agencia", "placa"];
 let edOrig = {};
 function abrirEditar(enfocarReferencia) {
-  const u = det.unidad, f = $("#f-editar"), e = det.evaluacion; f.reset();
+  const u = detU.unidad, f = $("#f-editar"), e = detU.evaluacion; f.reset();
   CAMPOS_ED.forEach(k => { f.elements[k].value = u[k] ?? ""; });
   edOrig = Object.fromEntries(CAMPOS_ED.map(k => [k, String(u[k] ?? "")]));
   $("#ed-sub").textContent = nombreVeh(u);
@@ -658,8 +874,8 @@ $("#f-editar").addEventListener("submit", async e => {
   if ("fuente_mercado_manual" in body || "mercado_manual" in body) { body.mercado_manual = f.mercado_manual.value; body.fuente_mercado_manual = f.fuente_mercado_manual.value; }
   if (!Object.keys(body).length) { $("#m-editar").hidden = true; return; }
   try {
-    det = await api(`/api/inventario/${det.unidad.id}`, body);
-    $("#m-editar").hidden = true; pintarUnidad(); toast("Datos de la unidad actualizados");
+    await api(`/api/inventario/${detU.unidad.id}`, body);
+    $("#m-editar").hidden = true; await recargarUnidad(); toast("Datos de la unidad actualizados");
   } catch (err) { error($("#ed-err"), err.message); }
 });
 
@@ -675,7 +891,7 @@ async function cargarTablero() {
     const av = o.avance, ancho = av == null ? 0 : Math.min(av, 1) * 100;
     return `<div class="obj-card ${o.estado || ""}"><h4>${esc(o.nombre)}</h4><div class="obj-valor">${fmtObj(o, o.valor)}</div>
       <div class="obj-metas"><span>Línea base<b>${o.base != null ? fmtObj(o, o.base) : "–"}</b></span><span>Meta 2028<b>${o.menos_es_mejor ? "≤ " : ""}${fmtObj(o, o.meta)}</b></span><span>Meta 2029<b>${o.menos_es_mejor ? "≤ " : ""}${fmtObj(o, o.meta2029)}</b></span></div>
-      ${o.meta_empresa != null ? `<div class="obj-det">Referencia: meta de la empresa ${o.meta_empresa} días.</div>` : ""}${o.clave === "beneficio" ? `<div class="obj-det">Valores al año.</div>` : ""}
+      ${o.meta_empresa != null ? `<div class="obj-det">Referencia: meta de la empresa ${o.meta_empresa} días.</div>` : ""}${o.nota ? `<div class="obj-det">${esc(o.nota)}</div>` : ""}${o.clave === "beneficio" ? `<div class="obj-det">Valores al año.</div>` : ""}
       <div class="obj-barra"><i style="width:${ancho}%"></i></div>
       <div class="obj-avance">${av == null ? "Sin datos todavía" : `${EST_OBJ[o.estado]} · ${Math.round(av * 100)} %`}</div>
       <div class="obj-det">${esc(o.detalle)}</div></div>`;
@@ -730,7 +946,7 @@ async function cargarTablero() {
     <td class="nw">${pe(x)}${YO.rol === "admin" && x.aprobado == null ? `<div class="btns-dec" style="margin-top:6px"><button class="btn btn-pri btn-mini" data-aprobar="${x.id}">Aprobar</button><button class="btn btn-ghost btn-mini" data-rechazar="${x.id}">Rechazar</button></div>` : ""}</td></tr>`; }).join("");
 }
 
-let mantener = null;
+let mantener = null, mantenerDesdeCalc = false;
 document.querySelector('[data-vista="tablero"]').addEventListener("click", async e => {
   const b = e.target.closest("[data-aplicar]"), mt = e.target.closest("[data-mantener]"), ap = e.target.closest("[data-aprobar],[data-rechazar]");
   if (b) {
@@ -740,7 +956,7 @@ document.querySelector('[data-vista="tablero"]').addEventListener("click", async
     return;
   }
   if (mt) {
-    mantener = mt.dataset.mantener; $("#f-mantener").reset(); error($("#mt-err"), "");
+    mantener = mt.dataset.mantener; mantenerDesdeCalc = false; $("#f-mantener").reset(); error($("#mt-err"), "");
     $("#mt-sub").innerHTML = `<b>${mt.dataset.nombre}</b>: se mantiene en ${usdE(+mt.dataset.pub)} aunque el sugerido es ${usdE(+mt.dataset.sug)}. Queda como excepción para que el administrador la apruebe.`;
     $("#m-mantener").hidden = false; return;
   }
@@ -750,13 +966,14 @@ document.querySelector('[data-vista="tablero"]').addEventListener("click", async
     catch (err) { toast("⚠️ " + esc(err.message)); ap.disabled = false; }
     return;
   }
-  const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = "#/unidad/" + tr.dataset.id;
+  const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = "#/calculadora/" + tr.dataset.id;
 });
 $("#f-mantener").addEventListener("submit", async e => {
   e.preventDefault();
   try {
     await api(`/api/inventario/${mantener}/precio`, { mantener: true, motivo: e.target.elements.motivo.value });
-    $("#m-mantener").hidden = true; toast("Revisión registrada con su motivo"); cargarTablero();
+    $("#m-mantener").hidden = true; toast("Revisión registrada con su motivo");
+    if (mantenerDesdeCalc) { mantenerDesdeCalc = false; await recargarUnidad(); } else cargarTablero();
   } catch (err) { error($("#mt-err"), err.message); }
 });
 
@@ -927,7 +1144,7 @@ function notaComite() {
     `Caso de la regla: ${e.caso_nombre}. ${e.frase_caso}`,
     `Mercado: ${usd(e.mercado)} (rango ${usd(e.bajo50)} – ${usd(e.alto50)})${e.referencia_manual ? " · referencia manual: " + (u.fuente_mercado_manual || "") : ""} · confianza ${conf.nivel || "–"}`,
     `Costo acumulado: ${usd(e.costo_acumulado)} (${usd(e.costo_base)} de compra y reacondicionamiento + ${e.dias} días × ${usd2E(e.costo_diario).replace("$", "USD ")})`,
-    `Precio publicado hoy: ${usd(u.precio_publicado)}`,
+    ...(cal.unidadId || cal.anuncio ? [`Precio publicado hoy: ${usd(u.precio_publicado)}`] : []),
     `Banda: mínimo ${usd(b.minimo.precio)} (${pct(b.minimo.pct)}) · objetivo ${usd(b.objetivo.precio)} (${pct(b.objetivo.pct)}) · máximo ${usd(b.maximo.precio)} (${pct(b.maximo.pct)})`,
     `Camino 1, vender hoy: ${usd(c.vender_hoy)}. Camino 2, ${c.modo === "espera_larga" ? "esperar hasta el día " + c.hasta_dia : "esperar 30 días más"}: ${usd(c.esperar)}. Diferencia a favor de ${c.diferencia >= 0 ? "vender hoy" : "esperar"}: ${usd(Math.abs(c.diferencia))}.`,
     `Acción recomendada: ${e.recomendacion} a ${usd(e.sugerido)}. ${e.accion_comercial}`,
@@ -941,7 +1158,7 @@ async function copiarTexto(t) {
   }
 }
 $("#un-nota").addEventListener("click", async () => {
-  if (!det || vendida(det.unidad)) return toast("La nota es para unidades en inventario");
+  if (!det || det.vendida) return toast("La nota es para carros en inventario");
   const t = notaComite();
   toast(await copiarTexto(t) ? "Nota copiada: pégala en el correo o el chat del comité" : "No se pudo copiar: el texto quedó en la consola");
   if (!navigator.clipboard) console.log(t);
