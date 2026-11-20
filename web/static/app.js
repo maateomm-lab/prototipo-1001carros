@@ -603,9 +603,10 @@ function pintarCalc() {
         largo ? `Margen de ${pct1(cm_.margen_espera)} (${usdE(cm_.margen_usd)}) a los ${cm_.hasta_dia} días, menos ${usdE(cm_.costo_espera)} de costo de capital por ${cm_.dias_extra} días más.`
               : `Precio de la regla en el día ${cm_.hasta_dia} menos el costo acumulado de ese día (${usdE(cm_.costo_espera)} más de costo).`)
     + `<div class="ancho ${gana ? "bueno" : ""}"><small>${gana ? "Diferencia a favor de vender ahora" : "Diferencia a favor de esperar"}</small><b>${usdE(Math.abs(cm_.diferencia))}</b>
-       <span>${gana ? "Es la cifra que suma el business case por cada unidad que deja de envejecer." : "Con estos números esperar deja más; revisar el costo o la referencia de mercado."}</span></div>`;
+       <span>${gana ? "Es la cifra que suma el business case por cada unidad que deja de envejecer." : "Con estos números esperar deja más; revisar el costo o la referencia de mercado."}</span>
+       <span class="ref-bc"><b>Business case:</b> ${usdE(c.business_case.beneficio_unidad)} por unidad rescatada (${usdE(c.business_case.margen_unidad)} de margen recuperado + ${usdE(c.business_case.capital_unidad)} de capital evitado), en promedio. La diferencia de esta unidad es <b>${usdE(Math.abs(cm_.diferencia))}</b>.</span></div>`;
   $("#cal-caminos-fuente").textContent = largo
-    ? `${p.dias_espera} días es el promedio de las unidades que pasan de 120 días y ${pct1(p.margen_espera)} el margen con que se venden (Entrega 1).`
+    ? `${p.dias_espera} días es el promedio de las unidades que pasan de 120 días y ${pct1(p.margen_espera)} el margen con que se venden (business case).`
     : `La unidad ya pasó el día ${p.dias_espera}: se compara con esperar 30 días más.`;
   // 8. por qué este precio · 9. comparación con el anuncio
   $("#cal-pasos").innerHTML = c.pasos.map(t => `<li>${esc(t)}</li>`).join("");
@@ -641,7 +642,7 @@ function pintarCostoMercado(v) {
   const { unidad: u, evaluacion: e, desglose: g } = det;
   $("#un-costo-sub").textContent = g.total_manual
     ? "Esta unidad tiene un costo diario propio que reemplaza el cálculo por parámetros."
-    : "El costo de esperar es el capital: 12 % × (compra + reacondicionamiento) ÷ 365, como en la Entrega 1. Seguro, patio y lavado solo aparecen si se activan en Parámetros.";
+    : "El costo de esperar es el capital: 12 % × (compra + reacondicionamiento) ÷ 365, como en el business case. Seguro, patio y lavado solo aparecen si se activan en Parámetros.";
   $("#un-costo-filas").innerHTML = g.componentes.map(c => `<tr class="${g.total_manual ? "tachada" : ""}"><td><b>${esc(c.nombre)}</b> ${tagFuente(c.fuente)}
     <div class="cuenta">${esc(c.nombre)}: ${esc(c.formula)}</div></td><td class="num nw"><b>${usd2E(c.valor)}</b></td></tr>`).join("");
   $("#un-costo-total").innerHTML = `<div><small>Costo diario total</small><b>${usd2E(g.total_diario)}</b><span>${g.total_manual ? "valor propio de la unidad" : g.componentes.map(c => usd2E(c.valor)).join(" + ")}</span></div>
@@ -886,20 +887,35 @@ async function cargarTablero() {
   let r;
   try { r = await api("/api/tablero"); } catch (e) { return toast("⚠️ " + esc(e.message)); }
 
-  // A. ¿vamos a cumplir las metas?
-  $("#t-obj").innerHTML = r.objetivos.map(o => {
+  // A. ¿vamos a cumplir las metas? Tres grupos, uno por objetivo específico de la tesis
+  const O = Object.fromEntries(r.objetivos.map(o => [o.clave, o]));
+  const tarjeta = (o, extra = "") => {
     const av = o.avance, ancho = av == null ? 0 : Math.min(av, 1) * 100;
     return `<div class="obj-card ${o.estado || ""}"><h4>${esc(o.nombre)}</h4><div class="obj-valor">${fmtObj(o, o.valor)}</div>
-      <div class="obj-metas"><span>Línea base<b>${o.base != null ? fmtObj(o, o.base) : "–"}</b></span><span>Meta 2028<b>${o.menos_es_mejor ? "≤ " : ""}${fmtObj(o, o.meta)}</b></span><span>Meta 2029<b>${o.menos_es_mejor ? "≤ " : ""}${fmtObj(o, o.meta2029)}</b></span></div>
-      ${o.meta_empresa != null ? `<div class="obj-det">Referencia: meta de la empresa ${o.meta_empresa} días.</div>` : ""}${o.nota ? `<div class="obj-det">${esc(o.nota)}</div>` : ""}${o.clave === "beneficio" ? `<div class="obj-det">Valores al año.</div>` : ""}
+      <div class="obj-metas"><span>Línea base<b>${o.base != null ? fmtObj(o, o.base) : "–"}</b></span><span>${o.control ? "Mínimo" : "Meta"}<b>${o.menos_es_mejor ? "≤ " : o.control ? "≥ " : ""}${fmtObj(o, o.meta)}</b></span></div>
+      ${extra}
       <div class="obj-barra"><i style="width:${ancho}%"></i></div>
-      <div class="obj-avance">${av == null ? "Sin datos todavía" : `${EST_OBJ[o.estado]} · ${Math.round(av * 100)} %`}</div>
+      <div class="obj-avance">${av == null ? "Sin datos todavía" : o.control ? (o.estado === "ok" ? "Cumple el mínimo" : "Por debajo del mínimo") : `${EST_OBJ[o.estado]} · ${Math.round(av * 100)} %`}</div>
       <div class="obj-det">${esc(o.detalle)}</div></div>`;
-  }).join("");
+  };
+  const mini = (titulo, valor, detalle) => `<div class="obj-card mini"><h4>${titulo}</h4><div class="obj-valor">${valor}</div><div class="obj-det">${detalle}</div></div>`;
+  const reg = O.regla, ben = O.beneficio;
+  const dividido = (nombre, valor, meta) => `<div class="obj-split"><span>${nombre}</span><b>${fmtObj(ben, valor)}</b><small>meta ${fmtObj(ben, meta)}</small></div>`;
+  const cuerpo = {
+    1: [O.dias, O.mas120, O.margen_bruto, O.margen_rescatadas].map(o => tarjeta(o)).join(""),
+    2: tarjeta(reg) + mini("Excepciones de este mes", reg.excepciones_mes ?? "–", "cambios de precio fuera de la banda; los que siguen sin aprobar cuentan como fuera de la regla")
+       + mini("Próximo comité de precios", reg.proximo_comite ? diaF(reg.proximo_comite) : "–", "el comité se reúne una vez al mes"),
+    3: tarjeta(ben, `<div class="obj-splits">${dividido("Margen recuperado", ben.margen, ben.meta_margen)}${dividido("Capital evitado", ben.capital_evitado, ben.meta_capital)}</div><div class="obj-det">Valores al año. ${esc(ben.nota)}</div>`)
+       + tarjeta(O.capital, `<div class="obj-det">Valores al año. Unidades rescatadas del año 1: ${O.capital.meta_unidades.toFixed(0)}.</div>`),
+  };
+  $("#t-obj").innerHTML = r.grupos.map(g => `<section class="obj-grupo">
+    <div class="obj-grupo-head"><span class="obj-num">${g.grupo}</span><div><h4>Objetivo ${g.grupo} · ${esc(g.titulo)} <small>(${esc(g.plazo)})</small></h4><p>${esc(g.texto)}</p></div></div>
+    <div class="obj-grid g${g.grupo}">${cuerpo[g.grupo]}</div>
+    ${g.grupo === 3 ? `<p class="obj-2030">${esc(ben.nota_2030)}</p>` : ""}</section>`).join("");
 
-  // B. ¿qué hay que decidir esta semana?
+  // B. revisión semanal del jefe de pricing
   const d = r.decisiones;
-  $("#t-pend").textContent = d.length ? `${d.length} ${d.length === 1 ? "decisión pendiente" : "decisiones pendientes"} esta semana` : "Sin decisiones pendientes esta semana";
+  $("#t-pend").textContent = d.length ? `${d.length} ${d.length === 1 ? "decisión pendiente" : "decisiones pendientes"} en la revisión semanal` : "Sin decisiones pendientes en la revisión semanal";
   $("#t-sem").innerHTML = ["rojo", "naranja", "amarillo", "verde"].map(s => `<span>${semDot(s)} ${r.semaforos[s]} ${SEM[s].toLowerCase()}</span>`).join("");
   $("#t-dec-vacio").hidden = d.length > 0; $("#t-dec-tabla").hidden = !d.length;
   $("#t-dec").innerHTML = d.map(x => `<tr class="clic" data-id="${x.id}"><td>${semDot(x.semaforo)}</td>
@@ -937,7 +953,13 @@ async function cargarTablero() {
 
   // excepciones
   const pe = x => x.aprobado === 1 ? `<span class="pill a-si">Aprobada</span>` : x.aprobado === 0 ? `<span class="pill a-no">Rechazada</span>` : `<span class="pill a-pend">Pendiente</span>`;
-  $("#t-exc-sub").textContent = `Cambios de precio de la semana que quedaron fuera de la banda de negociación (mínimo – máximo), más las que siguen sin aprobar. Una excepción sin aprobar cuenta como fuera de la regla.`;
+  const co = r.comite;
+  $("#t-com-sub").textContent = `El comité de precios se reúne una vez al mes: revisa las excepciones y las unidades que cruzaron el día 90. Próxima sesión: ${diaF(co.fecha)} (día ${co.dia_comite} de cada mes; editable en Parámetros).`;
+  $("#t-com-head").textContent = `${co.excepciones_mes} ${co.excepciones_mes === 1 ? "excepción" : "excepciones"} este mes · ${co.pasaron_90.length} ${co.pasaron_90.length === 1 ? "unidad pasó" : "unidades pasaron"} el día 90 · comité el ${diaF(co.fecha)}`;
+  $("#t-c90-vacio").hidden = co.pasaron_90.length > 0; $("#t-c90-tabla").hidden = !co.pasaron_90.length;
+  $("#t-c90").innerHTML = co.pasaron_90.map(x => `<tr class="clic" data-id="${x.id}"><td>${semDot(x.semaforo)}</td><td><b>${esc(nombreVeh(x))}</b><small>${esc(x.linea)} · ${esc(x.agencia || "–")}</small></td>
+    <td class="num">${x.dias}</td><td class="nw">${diaF(x.cruce)}</td><td class="num">${usdE(x.precio_publicado)}</td><td class="num"><b>${usdE(x.sugerido)}</b></td><td>${recPill(x.recomendacion)}</td></tr>`).join("");
+  $("#t-exc-sub").textContent = `Cambios de precio de este mes que quedaron fuera de la banda de negociación (mínimo – máximo), más los que siguen sin aprobar. Una excepción sin aprobar cuenta como fuera de la regla.`;
   $("#t-exc-vacio").hidden = r.excepciones.length > 0;
   $("#t-exc").innerHTML = r.excepciones.map(x => { const dd = x.precio_nuevo / x.precio_sugerido - 1;
     return `<tr class="clic" data-id="${x.unidad_id}"><td class="nw">${fechaCorta(x.fecha)}</td><td>${esc(x.vehiculo || "–")}<small>${esc(x.placa || "")}</small></td>
@@ -987,7 +1009,7 @@ function pintarCostosEjemplo() {
   PARAM_COSTOS.forEach(k => { const t = $(`[data-tag="${k}"]`); t.className = "tag-fuente " + f["fuente_" + k].value; t.textContent = FUENTE_TXT[f["fuente_" + k].value]; });
   ["seguro", "espacio", "lavado"].forEach(c => { $(`.cparam[data-c="${c}"]`).classList.toggle("inactivo", !on); });
   ["tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario", "fuente_tasa_seguro_anual", "fuente_costo_espacio_diario", "fuente_costo_lavado_diario"].forEach(k => f[k].disabled = !on);
-  const filas = [["Capital", b => Math.round(b * n("tasa_capital_anual") / 365) / 100, "tasa_capital_anual"]];       // a centavos, como en la Entrega 1
+  const filas = [["Capital", b => Math.round(b * n("tasa_capital_anual") / 365) / 100, "tasa_capital_anual"]];       // a centavos, como en el business case
   if (on) filas.push(["Seguro", b => Math.round(b * n("tasa_seguro_anual") / 365) / 100, "tasa_seguro_anual"],
     ["Espacio en patio", () => n("costo_espacio_diario"), "costo_espacio_diario"], ["Lavado y mantenimiento", () => n("costo_lavado_diario"), "costo_lavado_diario"]);
   const bases = [15715, 76500];
@@ -996,7 +1018,32 @@ function pintarCostosEjemplo() {
     + `<tr class="total"><td><b>Total por día</b></td>${tot.map(v => `<td class="num"><b>${usd2E(v)}</b></td>`).join("")}</tr>`
     + `<tr><td>A 90 días</td>${bases.map((b, i) => `<td class="num">${usdE(b + 90 * tot[i])}<small>costo acumulado</small></td>`).join("")}</tr>`;
 }
-$("#f-param").addEventListener("input", pintarCostosEjemplo);
+// metas calculadas con los supuestos: misma cuenta del modelo financiero (inventario.business_case); redondea por unidad (USD 595 y 695)
+function businessCaseJS(anio) {
+  const f = $("#f-param").elements, n = k => +f[k].value, pc = k => n(k) / 100;
+  const ventas = n("ventas_2025") * (1 + pc("crecimiento_ventas")) ** anio, resc = ventas * pc("base_pct_mas_120") * pc("proporcion_rescatada");
+  const mz = pc("mezcla_61_90"), margenResc = mz * pc("margen_61_90") + (1 - mz) * pc("margen_91_120");
+  const margenU = Math.round((margenResc - pc("margen_espera")) * n("precio_referencia"));
+  const dias = n("dias_espera") - (mz * n("base_dias_promedio") + (1 - mz) * n("dia_venta_91_120"));
+  const diario = Math.round(n("costo_referencia") * pc("tasa_capital_anual") / 365 * 100) / 100, capU = Math.round(diario * dias);
+  return { resc, margenResc, margenU, capU, benU: margenU + capU, dias, margen: resc * margenU, capital: resc * capU, beneficio: resc * (margenU + capU),
+           liberado: resc * n("costo_referencia") * dias / 365 };
+}
+function pintarBusinessCase() {
+  const a = businessCaseJS(1), z = businessCaseJS(+$("#f-param").elements.anio_referencia.value || 5);
+  const fila = (t, v, s = "") => `<tr><td>${t}${s ? `<small>${s}</small>` : ""}</td><td class="num"><b>${v}</b></td></tr>`;
+  $("#par-bc tbody").innerHTML =
+    fila("Unidades rescatadas (año 1)", a.resc.toFixed(1).replace(".", ","), "ventas × % pasan de 120 d × % rescatada") +
+    fila("Margen de una rescatada", pct1(a.margenResc), "mezcla de los tramos 61–90 y 91–120") +
+    fila("Margen recuperado por unidad", usdE(a.margenU), "(margen rescatada − margen después de 120 d) × precio de referencia") +
+    fila("Días de capital evitados", a.dias.toFixed(1).replace(".", ","), "días promedio después de 120 − día promedio de venta") +
+    fila("Capital evitado por unidad", usdE(a.capU), "costo diario × días evitados") +
+    fila("Beneficio por unidad rescatada", usdE(a.benU), "margen recuperado + capital evitado") +
+    fila("Meta de beneficio anual", usdE(a.beneficio), `margen ${usdE(a.margen)} + capital ${usdE(a.capital)}`) +
+    fila("Meta de capital liberado", usdE(a.liberado), "rescatadas × costo de referencia × días evitados ÷ 365") +
+    fila(`Referencia ${2025 + (+$("#f-param").elements.anio_referencia.value || 5)} (informativa)`, `${usdE(z.beneficio)} · ${usdE(z.liberado)}`, "beneficio · capital liberado");
+}
+$("#f-param").addEventListener("input", () => { pintarCostosEjemplo(); pintarBusinessCase(); });
 $("#f-param").elements.costos_adicionales.addEventListener("change", e => {
   const f = $("#f-param").elements, ej = paramDef && paramDef.__ej;
   if (e.target.checked && ej && !(+f.tasa_seguro_anual.value || +f.costo_espacio_diario.value || +f.costo_lavado_diario.value)) {      // se proponen los supuestos de antes
@@ -1016,12 +1063,14 @@ function llenarParametros(p) {
   [0, 1, 2, 3, 4].forEach(i => { f["m" + i].value = pc(p.margenes[i]); f["tp" + i].value = pc(p.topes[i]); });
   [0, 1].forEach(i => { f["su" + i].value = p.stock_umbrales[i]; f["sa" + i].value = pc(p.stock_ajustes[i]); });
   f.dias_espera.value = p.dias_espera; f.margen_espera.value = pc(p.margen_espera);
-  f.base_dias_promedio.value = p.base_dias_promedio; f.meta_dias_2028.value = p.meta_dias_2028; f.meta_dias_2029.value = p.meta_dias_2029;
-  f.meta_dias_empresa.value = p.meta_dias_empresa;
-  f.base_pct_mas_120.value = pc(p.base_pct_mas_120); f.meta_pct_mas_120_2028.value = pc(p.meta_pct_mas_120_2028); f.meta_pct_mas_120_2029.value = pc(p.meta_pct_mas_120_2029);
-  f.meta_pct_en_regla_2028.value = pc(p.meta_pct_en_regla_2028); f.meta_pct_en_regla_2029.value = pc(p.meta_pct_en_regla_2029);
-  f.meta_beneficio_2028.value = p.meta_beneficio_2028; f.meta_beneficio_2029.value = p.meta_beneficio_2029;
-  pintarCostosEjemplo();
+  f.base_dias_promedio.value = p.base_dias_promedio; f.meta_dias.value = p.meta_dias;
+  f.base_pct_mas_120.value = pc(p.base_pct_mas_120); f.meta_pct_mas_120.value = pc(p.meta_pct_mas_120); f.margen_bruto_minimo.value = pc(p.margen_bruto_minimo);
+  f.base_pct_en_regla.value = pc(p.base_pct_en_regla); f.meta_pct_en_regla.value = pc(p.meta_pct_en_regla); f.dia_comite_mes.value = p.dia_comite_mes;
+  f.ventas_2025.value = p.ventas_2025; f.crecimiento_ventas.value = +(p.crecimiento_ventas * 100).toFixed(6);       // 5,921317 %: el Excel usa el valor exacto
+  f.proporcion_rescatada.value = pc(p.proporcion_rescatada); f.margen_61_90.value = pc(p.margen_61_90); f.margen_91_120.value = pc(p.margen_91_120);
+  f.mezcla_61_90.value = pc(p.mezcla_61_90); f.dia_venta_91_120.value = p.dia_venta_91_120; f.anio_referencia.value = p.anio_referencia;
+  f.precio_referencia.value = p.precio_referencia; f.costo_referencia.value = p.costo_referencia;
+  pintarCostosEjemplo(); pintarBusinessCase();
   t.forEach((x, i) => f["t" + i].value = x);
   f.dias_revision.value = p.dias_revision; f.tolerancia_banda.value = +(p.tolerancia_banda * 100).toFixed(2);
 }
@@ -1030,10 +1079,12 @@ function leerParametros() {
   return { tasa_capital_anual: n("tasa_capital_anual") / 100, costos_adicionales: f.costos_adicionales.checked, tasa_seguro_anual: n("tasa_seguro_anual") / 100,
     costo_espacio_diario: n("costo_espacio_diario"), costo_lavado_diario: n("costo_lavado_diario"),
     fuentes: Object.fromEntries(PARAM_COSTOS.map(k => [k, f["fuente_" + k].value])),
-    base_dias_promedio: n("base_dias_promedio"), meta_dias_2028: n("meta_dias_2028"), meta_dias_2029: n("meta_dias_2029"), meta_dias_empresa: n("meta_dias_empresa"),
-    base_pct_mas_120: n("base_pct_mas_120") / 100, meta_pct_mas_120_2028: n("meta_pct_mas_120_2028") / 100, meta_pct_mas_120_2029: n("meta_pct_mas_120_2029") / 100,
-    meta_pct_en_regla_2028: n("meta_pct_en_regla_2028") / 100, meta_pct_en_regla_2029: n("meta_pct_en_regla_2029") / 100,
-    meta_beneficio_2028: n("meta_beneficio_2028"), meta_beneficio_2029: n("meta_beneficio_2029"),
+    base_dias_promedio: n("base_dias_promedio"), meta_dias: n("meta_dias"), base_pct_mas_120: n("base_pct_mas_120") / 100,
+    meta_pct_mas_120: n("meta_pct_mas_120") / 100, margen_bruto_minimo: n("margen_bruto_minimo") / 100,
+    base_pct_en_regla: n("base_pct_en_regla") / 100, meta_pct_en_regla: n("meta_pct_en_regla") / 100, dia_comite_mes: n("dia_comite_mes"),
+    ventas_2025: n("ventas_2025"), crecimiento_ventas: n("crecimiento_ventas") / 100, proporcion_rescatada: n("proporcion_rescatada") / 100,
+    margen_61_90: n("margen_61_90") / 100, margen_91_120: n("margen_91_120") / 100, mezcla_61_90: n("mezcla_61_90") / 100,
+    dia_venta_91_120: n("dia_venta_91_120"), anio_referencia: n("anio_referencia"), precio_referencia: n("precio_referencia"), costo_referencia: n("costo_referencia"),
     margen_minimo: n("margen_minimo") / 100, banda_negociacion: n("banda_negociacion") / 100, dias_revision: n("dias_revision"),
     tramos: [0, 1, 2, 3].map(i => n("t" + i)), margenes: [0, 1, 2, 3, 4].map(i => n("m" + i) / 100), topes: [0, 1, 2, 3, 4].map(i => n("tp" + i) / 100),
     stock_umbrales: [n("su0"), n("su1")], stock_ajustes: [n("sa0") / 100, n("sa1") / 100],

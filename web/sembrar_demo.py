@@ -13,7 +13,8 @@ Qué trae:
     (semilla fija), para que haya unidades dentro y fuera de la banda de negociación.
   - 4 unidades de CONFIANZA BAJA: dos Nissan Pathfinder 2023 y dos Cadillac Escalade 2022; de cada par, una sin referencia
     manual y otra con referencia manual y su fuente.
-  - 11 unidades ya vendidas en los últimos 90 días (una pasó de 120 días y quedó liquidada), para los objetivos del tablero.
+  - 11 unidades ya vendidas en los últimos 90 días (una pasó de 120 días y quedó liquidada), para los objetivos del tablero; se venden
+    con la regla: costo × (1 + margen objetivo del tramo de venta) ± 3 % (como si el precio sugerido se hubiera aplicado).
   - Revisiones de precio dentro de la banda (una primera revisión antes del día 91 en la mayoría de las unidades viejas y
     cambios recientes en los últimos 60 días) y 4 excepciones con motivo: 2 aprobadas y 2 pendientes.
 """
@@ -117,7 +118,8 @@ def sembrar():
         uid = _crear(art, azar, i, u, hoy, linea=("1001", "Autos OK")[k % 2])
         i += 1
         real = BD.obtener_unidad(uid)
-        precio = round(INV.costo_acumulado(real, d, p) * azar.uniform(1.0, 1.13), -1)
+        base = real["costo_compra"] + (real["reacondicionamiento"] or 0)
+        precio = round(base * (1 + p["margenes"][INV.tramo(d, p)]) * azar.uniform(0.99, 1.03), -1)     # margen objetivo del tramo ± banda
         BD.actualizar_unidad(uid, dict(estado="Liquidada" if d > p["tramos"][3] else "Vendida", fecha_venta=venta.isoformat(),
                                        precio_venta=precio))
         vendidas += 1

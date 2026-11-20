@@ -221,17 +221,29 @@
     <!-- ------------------------------------------- TABLERO DE OBJETIVOS -->
     <section class="vista" data-vista="tablero" hidden>
       <header class="vista-head">
-        <div><h2>Tablero de objetivos</h2><p class="hint">Todo cambio de precio sigue reglas y se revisa en la reunión semanal: aquí se ve si vamos a cumplir las metas y qué hay que decidir esta semana.</p></div>
+        <div><h2>Tablero de objetivos</h2><p class="hint">Todo cambio de precio sigue reglas: el jefe de pricing revisa el semáforo cada semana y el comité de precios se reúne una vez al mes. Aquí se ve si vamos a cumplir las metas y qué hay que decidir.</p></div>
       </header>
 
-      <div class="bloque-tit"><span>A</span><div><h3>¿Vamos a cumplir las metas?</h3><p class="hint">Las cuatro metas del caso, con su línea base. Verde: cumplida · ámbar: ya recorrió la mitad del camino · rojo: falta más de la mitad.</p></div></div>
-      <div class="obj-grid" id="t-obj"></div>
+      <div class="bloque-tit"><span>A</span><div><h3>¿Vamos a cumplir las metas?</h3><p class="hint">Los indicadores de los objetivos de la tesis, con su línea base y su meta. Verde: cumplida · ámbar: ya recorrió la mitad del camino · rojo: falta más de la mitad. Los valores actuales son de la <b>demostración</b> (ventas de los últimos 90 días de los datos de ejemplo).</p></div></div>
+      <div id="t-obj"></div>
 
-      <div class="bloque-tit"><span>B</span><div><h3>¿Qué hay que decidir esta semana?</h3><p class="hint">Lista para la reunión semanal: solo las unidades que necesitan una decisión, de la más urgente a la menos urgente.</p></div></div>
+      <div class="bloque-tit"><span>B</span><div><h3>Para la revisión semanal (jefe de pricing)</h3><p class="hint">El jefe de pricing revisa el semáforo cada semana: solo las unidades que necesitan una decisión, de la más urgente a la menos urgente.</p></div></div>
       <div class="card">
         <div class="pend-head"><b id="t-pend">–</b><div id="t-sem" class="chips-sem"></div></div>
         <div class="tabla-wrap"><table class="tabla" id="t-dec-tabla"><thead><tr><th></th><th>Vehículo</th><th class="num">Días</th><th class="num">Publicado</th><th class="num">Sugerido</th><th>Recomendación</th><th>Caso de la regla y acción comercial</th><th>Por qué está aquí</th><th></th></tr></thead><tbody id="t-dec"></tbody></table>
-        <p class="vacio-tabla" id="t-dec-vacio" hidden>Nada pendiente de decidir esta semana. 🎉</p></div>
+        <p class="vacio-tabla" id="t-dec-vacio" hidden>Nada pendiente en la revisión semanal. 🎉</p></div>
+      </div>
+
+      <div class="bloque-tit"><span>M</span><div><h3>Para el comité de este mes</h3><p class="hint" id="t-com-sub">–</p></div></div>
+      <div class="card">
+        <div class="pend-head"><b id="t-com-head">–</b></div>
+        <h4 class="sub-tit">Unidades que pasaron el día 90 este mes</h4>
+        <div class="tabla-wrap"><table class="tabla compacta" id="t-c90-tabla"><thead><tr><th></th><th>Vehículo</th><th class="num">Días</th><th>Cruzó el día 90</th><th class="num">Publicado</th><th class="num">Sugerido</th><th>Recomendación</th></tr></thead><tbody id="t-c90"></tbody></table>
+        <p class="vacio-tabla" id="t-c90-vacio" hidden>Ninguna unidad cruzó el día 90 este mes.</p></div>
+        <h4 class="sub-tit">Excepciones de precio</h4>
+        <p class="hint" id="t-exc-sub">–</p>
+        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th>Vehículo</th><th class="num">Sugerido</th><th class="num">Aplicado</th><th class="num">Diferencia</th><th>Motivo</th><th>Usuario</th><th>Estado</th></tr></thead><tbody id="t-exc"></tbody></table>
+        <p class="vacio-tabla" id="t-exc-vacio" hidden>Sin excepciones.</p></div>
       </div>
 
       <div class="bloque-tit"><span>C</span><div><h3>¿Dónde está el dinero?</h3><p class="hint">Cuánto capital tienen parado los carros en piso y cuánto cuesta cada día de espera, por tramo de antigüedad.</p></div></div>
@@ -241,11 +253,6 @@
         <div class="card"><h3 class="card-tit" id="t-tit-capital">Capital invertido por tramo de días</h3><div class="chart-box sm"><canvas id="ch-capital"></canvas></div></div>
       </div>
 
-      <div class="bloque-tit"><span>＋</span><div><h3>Excepciones de precio</h3><p class="hint" id="t-exc-sub">–</p></div></div>
-      <div class="card">
-        <div class="tabla-wrap"><table class="tabla compacta"><thead><tr><th>Fecha</th><th>Vehículo</th><th class="num">Sugerido</th><th class="num">Aplicado</th><th class="num">Diferencia</th><th>Motivo</th><th>Usuario</th><th>Estado</th></tr></thead><tbody id="t-exc"></tbody></table>
-        <p class="vacio-tabla" id="t-exc-vacio" hidden>Sin excepciones.</p></div>
-      </div>
     </section>
 
     <!-- ------------------------------------------- PARÁMETROS -->
@@ -254,13 +261,13 @@
       <div class="usr-grid par-grid">
         <form class="card" id="f-param">
           <h3 class="card-tit">Costo diario de cada carro</h3>
-          <p class="hint">Igual que en la Entrega 1, el costo de esperar es <b>solo el costo de capital</b>: 12 % anual × (compra + reacondicionamiento) ÷ 365, calculado por unidad. Seguro, patio y lavado quedan en 0 salvo que actives los costos adicionales.</p>
+          <p class="hint">Igual que en el business case, el costo de esperar es <b>solo el costo de capital</b>: 12 % anual × (compra + reacondicionamiento) ÷ 365, calculado por unidad. Seguro, patio y lavado quedan en 0 salvo que actives los costos adicionales.</p>
           <div class="cparam" data-c="capital">
             <div class="cparam-top"><label class="lbl">Capital <small>(% anual sobre compra + reacondicionamiento)</small></label><span class="tag-fuente" data-tag="tasa_capital_anual"></span></div>
             <div class="cparam-in"><input type="number" step="0.1" min="0" max="100" name="tasa_capital_anual" required><select name="fuente_tasa_capital_anual"><option value="empresa">Dato de la empresa</option><option value="supuesto">Supuesto</option></select></div>
             <p class="cparam-nota">Lo que cuesta tener plata inmovilizada en el carro. Ejemplo de 1001Carros: USD 15.715 × 12 % ÷ 365 = USD 5,17 por día.</p>
           </div>
-          <h4 class="sub-tit" style="margin-top:14px">Costos adicionales <small>(no incluidos en la Entrega 1)</small></h4>
+          <h4 class="sub-tit" style="margin-top:14px">Costos adicionales <small>(no incluidos en el business case)</small></h4>
           <label class="check-adic"><input type="checkbox" name="costos_adicionales"> Contar seguro, patio y lavado en el costo de esperar <small>(análisis de sensibilidad)</small></label>
           <p class="hint" id="adic-hint">Desactivado: estos tres costos valen 0 y no aparecen en el desglose de cada unidad. Al activarlo se proponen los supuestos usados antes de la v4 (seguro 2 %, patio USD 2 y lavado USD 1 por día); puedes cambiarlos.</p>
           <div class="cparam" data-c="seguro">
@@ -305,24 +312,38 @@
             <div><label class="lbl">Días promedio de las unidades que pasan de 120</label><input type="number" min="1" name="dias_espera"></div>
             <div><label class="lbl">Margen con que se venden (%)</label><input type="number" step="0.1" min="0" max="100" name="margen_espera"></div>
           </div>
-          <p class="cparam-nota">Fuente: Entregable 1, 1001 Carros (2026g, 2026k): 232 días y 3,2 % de margen.</p>
+          <p class="cparam-nota">Fuente: business case (Tabla 3 y modelo financiero), 1001 Carros (2026g, 2026k): 232 días y 3,2 % de margen.</p>
           <h3 class="card-tit" style="margin-top:18px">Control</h3>
           <div class="grid2">
             <div><label class="lbl">Revisar cada (días)</label><input type="number" min="1" name="dias_revision"></div>
             <div><label class="lbl">Tolerancia del rango de mercado (±%)</label><input type="number" step="0.5" min="0" name="tolerancia_banda"></div>
           </div>
-          <h3 class="card-tit" style="margin-top:18px">Metas del Tablero de objetivos</h3>
-          <p class="hint">Línea base, meta 2028 (la que se vigila hoy) y meta 2029. El beneficio por unidad de la Entrega 1 es USD 1.932: <b>margen recuperado</b> USD 1.120 (6,4 % sobre USD 17.500) + <b>capital evitado</b> USD 812 (USD 5,17 por día × 157 días). Cada venta real antes de los 120 días suma (precio de venta − compra − compra × 3,2 %) + costo diario × (232 − días en piso).</p>
+          <h3 class="card-tit" style="margin-top:18px">Metas del business case</h3>
+          <p class="hint">Línea base y meta a 12 meses de los tres objetivos de la tesis (Business case, Tablas 3 y 5). El margen bruto es un <b>control</b>: no puede bajar del mínimo. Las metas de beneficio y de capital liberado <b>no se escriben</b>: se calculan con los supuestos de abajo (cuadro «Metas calculadas», a la derecha).</p>
           <div class="tabla-wrap"><table class="tabla compacta tabla-param">
-            <thead><tr><th>Objetivo</th><th>Línea base</th><th>Meta 2028</th><th>Meta 2029</th></tr></thead>
+            <thead><tr><th>Indicador</th><th>Línea base</th><th>Meta</th></tr></thead>
             <tbody>
-              <tr><td>Días promedio en inventario</td><td><input type="number" step="1" min="0" name="base_dias_promedio"></td><td><input type="number" step="1" min="0" name="meta_dias_2028"></td><td><input type="number" step="1" min="0" name="meta_dias_2029"></td></tr>
-              <tr><td>Unidades de más de 120 días (%)</td><td><input type="number" step="0.1" min="0" max="100" name="base_pct_mas_120"></td><td><input type="number" step="0.1" min="0" max="100" name="meta_pct_mas_120_2028"></td><td><input type="number" step="0.1" min="0" max="100" name="meta_pct_mas_120_2029"></td></tr>
-              <tr><td>Cambios dentro de la regla (%)</td><td>–</td><td><input type="number" step="1" min="0" max="100" name="meta_pct_en_regla_2028"></td><td><input type="number" step="1" min="0" max="100" name="meta_pct_en_regla_2029"></td></tr>
-              <tr><td>Beneficio al año (USD)</td><td>–</td><td><input type="number" step="1000" min="0" name="meta_beneficio_2028" style="width:96px"></td><td><input type="number" step="1000" min="0" name="meta_beneficio_2029" style="width:96px"></td></tr>
+              <tr><td>1 · Días promedio en inventario</td><td><input type="number" step="1" min="0" name="base_dias_promedio"></td><td><input type="number" step="1" min="0" name="meta_dias"></td></tr>
+              <tr><td>1 · Vendidos después de 120 días (%)</td><td><input type="number" step="0.1" min="0" max="100" name="base_pct_mas_120"></td><td><input type="number" step="0.1" min="0" max="100" name="meta_pct_mas_120"></td></tr>
+              <tr><td>1 · Margen bruto promedio (%) <small>(control: mínimo)</small></td><td>–</td><td><input type="number" step="0.1" min="0" max="100" name="margen_bruto_minimo"></td></tr>
+              <tr><td>2 · Precios ajustados con la regla (%) <small>(a 6 meses)</small></td><td><input type="number" step="1" min="0" max="100" name="base_pct_en_regla"></td><td><input type="number" step="1" min="0" max="100" name="meta_pct_en_regla"></td></tr>
             </tbody></table></div>
           <div class="grid2" style="margin-top:10px">
-            <div><label class="lbl">Referencia: meta de la empresa en días promedio</label><input type="number" step="1" min="0" name="meta_dias_empresa"></div>
+            <div><label class="lbl">Día del mes del comité de precios (mensual)</label><input type="number" step="1" min="1" max="28" name="dia_comite_mes"></div>
+          </div>
+          <h3 class="card-tit" style="margin-top:18px">Supuestos del business case</h3>
+          <p class="hint">Con estos datos se calculan el beneficio y el capital liberado, igual que en el modelo financiero (Proyección_1001carros_objetivos_actualizados.xlsx). El costo de capital (12 %), los 232 días y el 3,2 % de margen después de 120 días están más arriba.</p>
+          <div class="grid2">
+            <div><label class="lbl">Seminuevos vendidos en 2025</label><input type="number" step="1" min="0" name="ventas_2025"></div>
+            <div><label class="lbl">Crecimiento anual de ventas (%)</label><input type="number" step="any" min="0" max="100" name="crecimiento_ventas"></div>
+            <div><label class="lbl">Proporción rescatada cada año (%)</label><input type="number" step="1" min="0" max="100" name="proporcion_rescatada"></div>
+            <div><label class="lbl">Margen vendido entre los días 61–90 (%)</label><input type="number" step="0.1" min="0" max="100" name="margen_61_90"></div>
+            <div><label class="lbl">Margen vendido entre los días 91–120 (%)</label><input type="number" step="0.1" min="0" max="100" name="margen_91_120"></div>
+            <div><label class="lbl">De las rescatadas, vendidas entre 61–90 (%)</label><input type="number" step="1" min="0" max="100" name="mezcla_61_90"></div>
+            <div><label class="lbl">Día de venta de las del tramo 91–120</label><input type="number" step="1" min="91" max="120" name="dia_venta_91_120"></div>
+            <div><label class="lbl">Año de la referencia informativa (5 = 2030)</label><input type="number" step="1" min="1" max="10" name="anio_referencia"></div>
+            <div><label class="lbl">Precio de venta de referencia (USD)</label><input type="number" step="100" min="0" name="precio_referencia"></div>
+            <div><label class="lbl">Costo de compra de referencia (USD)</label><input type="number" step="100" min="0" name="costo_referencia"></div>
           </div>
           <p class="form-err" id="par-err" hidden></p>
           <div class="row-btns"><button class="btn btn-pri" type="submit">Guardar parámetros</button>
@@ -331,9 +352,14 @@
         </form>
         <div class="par-der">
         <div class="card">
+          <h3 class="card-tit">Metas calculadas (business case)</h3>
+          <p class="hint">Se recalculan al escribir en el formulario. Año 1 = 2026.</p>
+          <div class="tabla-wrap"><table class="tabla compacta" id="par-bc"><tbody></tbody></table></div>
+        </div>
+        <div class="card">
           <h3 class="card-tit">El costo diario según el valor del carro</h3>
           <p class="hint">Se recalcula al escribir en el formulario (antes de guardar).</p>
-          <table class="tabla compacta" id="par-costos"><thead><tr><th></th><th class="num">Carro de USD 15.715</th><th class="num">Carro de USD 76.500</th></tr></thead><tbody></tbody></table>
+          <div class="tabla-wrap"><table class="tabla compacta" id="par-costos"><thead><tr><th></th><th class="num">Carro de USD 15.715</th><th class="num">Carro de USD 76.500</th></tr></thead><tbody></tbody></table></div>
         </div>
         <div class="card">
           <h3 class="card-tit">Unidad de ejemplo</h3>
@@ -389,14 +415,20 @@
       <header class="vista-head"><div><h2>Cómo funciona</h2><p class="hint">Qué problema resuelve el prototipo, cómo calcula el precio y de dónde sale cada dato.</p></div></header>
 
       <div class="card">
-        <h3 class="card-tit">1. El problema</h3>
+        <h3 class="card-tit">1. El problema y los objetivos de la tesis</h3>
         <div class="kpis como-kpis">
-          <div class="kpi"><small>Unidades con más de 120 días</small><b>17,8 %</b><span>del inventario de la línea 1001</span></div>
-          <div class="kpi"><small>Días promedio en inventario</small><b>75</b><span>la empresa busca 65</span></div>
-          <div class="kpi"><small>Margen al envejecer</small><b>11,2 % → 3,2 %</b><span>de vender a tiempo a vender después de 120 días</span></div>
+          <div class="kpi"><small>Vendidos después de 120 días</small><b>17,8 %</b><span>de los seminuevos de la línea 1001: 619 de 3.480 unidades</span></div>
+          <div class="kpi"><small>Días promedio en inventario</small><b>75</b><span>meta a 12 meses: 69</span></div>
+          <div class="kpi"><small>Margen al envejecer</small><b>9,6 % → 3,2 %</b><span>vendido entre los días 61 y 90 frente a después de 120 días</span></div>
           <div class="kpi"><small>Costo de esperar</small><b>USD 5,17</b><span>por día de capital en un carro de USD 15.715 (12 % anual)</span></div>
         </div>
-        <p>Cada día que un carro se queda en el patio cuesta plata y su valor de mercado baja. Sin una regla, el precio se cambia tarde y a criterio de cada asesor: los carros caros se quedan más días y terminan vendiéndose con poco o ningún margen.</p>
+        <p>Cada día que un carro se queda en el patio cuesta plata y su valor de mercado baja. Sin una regla, el precio se cambia tarde y a criterio de una o dos personas: los carros viejos se venden con poco margen y el dinero queda parado. El prototipo muestra cómo una regla por días en piso, una referencia de mercado y un comité de precios mensual atacan ese problema. Estos son los tres objetivos específicos de la tesis (business case):</p>
+        <ol class="pasos">
+          <li><b>Objetivo 1 · Rotación con margen (12 meses).</b> Reducir el promedio de días en inventario de la línea 1001 (seminuevos) de 75 a 69 días y la proporción de seminuevos vendidos después de 120 días de 17,8 % a 13,4 %, en 12 meses, manteniendo un margen bruto promedio de los seminuevos no menor al 8 %.</li>
+          <li><b>Objetivo 2 · Precios con reglas (6 meses).</b> Lograr que, en 6 meses, el 100 % de los precios de venta de usados se ajuste en el CRM mediante reglas por días en piso y referencia de mercado, revisadas por un comité de precios mensual, en lugar de depender de una o dos personas.</li>
+          <li><b>Objetivo 3 · Beneficio y capital (12 meses).</b> Generar en 12 meses un beneficio de USD 0,13 millones al año, sumando el margen que hoy se pierde al vender los seminuevos después de 120 días (USD 59.765) y el costo de tener el dinero invertido en carros que no se venden (USD 69.809), y liberar USD 0,58 millones que hoy están inmovilizados en ese inventario.</li>
+        </ol>
+        <p class="hint">Fuentes: Business_Case_Solucion_y_Financiero.docx (Tablas 2, 3, 5, 6 y 7) y el modelo financiero Proyección_1001carros_objetivos_actualizados.xlsx (hojas Supuestos, Flujo y KPIs). El Tablero de objetivos mide estos tres objetivos con los datos de la demostración.</p>
       </div>
 
       <div class="card">
@@ -428,18 +460,43 @@
             <tr><td><span class="pill k-ganancia_reducida">Ganancia reducida</span></td><td>El mercado está entre el equilibrio y el piso</td><td>El mercado: se gana menos, sin pérdida</td></tr>
             <tr><td><span class="pill k-perdida_inevitable">Pérdida inevitable</span></td><td>El costo acumulado ya supera al mercado</td><td>Mercado con el tope del tramo; va al comité</td></tr>
           </tbody></table></div>
-        <h4 style="margin-top:16px">Costo de esperar y beneficio (como en la Entrega 1)</h4>
+        <h4 style="margin-top:16px">Costo de esperar</h4>
         <ul class="evid">
-          <li><b>Costo de esperar = solo el capital al 12 % anual.</b> Costo diario = 12 % × (compra + reacondicionamiento) ÷ 365, redondeado a centavos. Un carro de USD 15.715 cuesta <b>USD 5,17 por día</b>; uno de USD 17.000, USD 5,59. Seguro, patio y lavado no están en la Entrega 1: valen 0 salvo que se activen en Parámetros (sensibilidad).</li>
-          <li><b>Margen recuperado</b> (Entrega 1, sección 3.2): una unidad vendida entre los días 61 y 90 deja 9,6 % de margen y una que pasa de 120 días deja 3,2 %. Esos <b>6,4 % sobre el precio de referencia de USD 17.500 son USD 1.120</b> por unidad.</li>
-          <li><b>Capital evitado</b> = costo diario × (232 − 75). Un carro de USD 15.715 cuesta 15.715 × 12 % ÷ 365 = USD 5,17 por día, y venderlo al día 75 evita 157 días de espera: 5,17 × 157 = <b>USD 812</b> por unidad.</li>
-          <li><b>Beneficio por unidad = 1.120 + 812 = USD 1.932.</b> El beneficio anual es las unidades que dejan de pasar de 120 días × 1.932 (Tabla 3): <b>25 % → 95 unidades → USD 183.540</b> (meta 2028); <b>50 % → 190 unidades → USD 367.080</b> (USD 212.800 de margen + USD 154.280 de capital; meta 2029); 75 % → 284 unidades → USD 548.688. En el escenario del 50 % se liberan unos USD 1,28 millones de capital.</li>
-          <li><b>En el Tablero</b>, cada venta real antes de los 120 días suma con esa misma estructura: (precio de venta − compra) − compra × 3,2 % + costo diario × (232 − días en piso).</li>
+          <li><b>Costo de esperar = solo el capital al 12 % anual.</b> Costo diario = 12 % × (compra + reacondicionamiento) ÷ 365, redondeado a centavos, como en el business case. Un carro de USD 15.715 cuesta <b>USD 5,17 por día</b>; uno de USD 17.000, USD 5,59. Seguro, patio y lavado no están en el business case: valen 0 salvo que se activen en Parámetros (sensibilidad).</li>
         </ul>
       </div>
 
       <div class="card">
-        <h3 class="card-tit">3. Evidencia</h3>
+        <h3 class="card-tit">3. Las cifras del business case</h3>
+        <p class="hint">Son las Tablas 3 y 5 del business case y la hoja Supuestos/Flujo del modelo financiero. El prototipo las calcula con los supuestos de Parámetros, así que si alguien cambia un supuesto, el Tablero se recalcula.</p>
+        <div class="tabla-wrap"><table class="tabla compacta">
+          <thead><tr><th>Concepto</th><th class="num">Valor</th><th>Cómo sale</th></tr></thead>
+          <tbody>
+            <tr><td>Seminuevos vendidos 2025</td><td class="num">2.131</td><td>1001 Carros (2026f)</td></tr>
+            <tr><td>Crecimiento anual de ventas</td><td class="num">5,92 %</td><td>Promedio de industria (15,84 %), PIB nacional (0,89 %) y PIB de comercio (1,04 %), 2024–2025</td></tr>
+            <tr><td>Vendidos después de 120 días</td><td class="num">17,8 %</td><td>619 de 3.480 unidades (1001 Carros, 2026g)</td></tr>
+            <tr><td>Proporción rescatada</td><td class="num">25 % cada año</td><td>Escenario bajo de la Entrega 1</td></tr>
+            <tr><td>Unidades rescatadas, año 1 (2026)</td><td class="num">≈ 100 (100,45)</td><td>2.131 × 1,0592 × 17,8 % × 25 %</td></tr>
+            <tr><td>Margen de una unidad rescatada</td><td class="num">6,6 %</td><td>25 % se vende entre los días 61–90 (9,6 %) y 75 % entre 91–120 (5,6 %)</td></tr>
+            <tr><td>Margen después de 120 días</td><td class="num">3,2 %</td><td>1001 Carros (2026k)</td></tr>
+            <tr><td>Margen recuperado por unidad</td><td class="num">USD 595</td><td>(6,6 % − 3,2 %) × USD 17.500</td></tr>
+            <tr><td>Días de capital evitados por unidad</td><td class="num">134,5</td><td>232 − (25 % × 75 + 75 % × 105)</td></tr>
+            <tr><td>Capital evitado por unidad</td><td class="num">USD 695</td><td>USD 5,17 × 134,5 días</td></tr>
+            <tr><td><b>Beneficio por unidad rescatada</b></td><td class="num"><b>USD 1.290</b></td><td><b>595 + 695</b></td></tr>
+            <tr><td><b>Beneficio año 1</b></td><td class="num"><b>USD 129.574</b></td><td>Margen recuperado USD 59.765 + capital evitado USD 69.809</td></tr>
+            <tr><td><b>Capital liberado año 1</b></td><td class="num"><b>USD 581.662</b></td><td>Unidades rescatadas × USD 15.715 × 134,5 ÷ 365</td></tr>
+            <tr><td>Beneficio y capital liberado 2030</td><td class="num">USD 163.099 y USD 732.157</td><td>Las ventas crecen 5,92 % al año</td></tr>
+          </tbody></table></div>
+        <ul class="evid" style="margin-top:12px">
+          <li><b>Beneficio por unidad rescatada (USD 1.290).</b> Margen recuperado = (6,6 % − 3,2 %) × USD 17.500 = <b>USD 595</b>. Capital evitado = USD 15.715 × 12 % ÷ 365 = USD 5,17 por día × 134,5 días = <b>USD 695</b>. Se redondea por unidad (595 y 695) antes de multiplicar por las 100,45 unidades rescatadas; sin redondear, el capital evitado saldría USD 69.845 en vez de USD 69.809.</li>
+          <li><b>Capital liberado</b> = unidades rescatadas × costo de compra de referencia (USD 15.715) × días evitados (134,5) ÷ 365 = <b>USD 581.662</b>: el dinero que deja de estar inmovilizado en el inventario.</li>
+          <li><b>En el Tablero</b>, cada venta real de una unidad rescatada (entre los días 61 y 120) suma con esa estructura: (precio de venta − compra) − compra × 3,2 % + costo diario × (232 − días en piso); el margen bruto se calcula como en la Tabla 3, (precio de venta − costo) ÷ precio de venta. Los valores del Tablero son de la <b>demostración</b>; las metas salen de la tabla de arriba.</li>
+          <li><b>Comité de precios mensual.</b> El jefe de pricing revisa el semáforo cada semana y cada unidad se revisa cada 7 días; las excepciones y las unidades que cruzaron el día 90 van al comité de precios, que se reúne una vez al mes.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-tit">4. Evidencia</h3>
         <ul class="evid">
           <li><b>Los carros más caros que el mercado se quedan más días.</b> Al cruzar 6.318 ventas del caso con el modelo, las unidades publicadas sobre el valor de mercado tardaron más en venderse: en la línea 1001, mediana de 53 días contra 35; en Autos OK, 27 contra 7. (Datos en DATOS/cruce_ventas/.)</li>
           <li><b>No hay un sobreprecio general: hay dispersión sin regla.</b> 105 anuncios reales de 1001carros.com del 7-oct-2026 pasados por el modelo: mediana 4 % bajo el mercado; 49 dentro del rango probable, 36 por debajo y 20 por encima.</li>
@@ -447,31 +504,33 @@
       </div>
 
       <div class="card">
-        <h3 class="card-tit">4. De dónde sale cada dato</h3>
+        <h3 class="card-tit">5. De dónde sale cada dato</h3>
         <div class="tabla-wrap"><table class="tabla compacta">
           <thead><tr><th>Dato</th><th>Fuente</th><th>Tipo</th></tr></thead>
           <tbody>
-            <tr><td>Márgenes por antigüedad (11,2 % → 3,2 %) y margen de ingreso (10–12 %)</td><td>Reuniones con 1001 Carros</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
-            <tr><td>Costo de capital de 12 % anual</td><td>Ejemplo de costo de inventario de la empresa (5-oct-2026)</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
-            <tr><td>Días en inventario e histórico por modelo; 232 días y 3,2 % de las unidades de más de 120 días</td><td>Base del caso (solo días y estructura; los costos y precios vienen alterados y no se usan como nivel); Entregable 1</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
+            <tr><td>Márgenes por antigüedad (9,6 % entre los días 61–90, 5,6 % entre 91–120 y 3,2 % después de 120) y margen de ingreso (10–12 %)</td><td>1001 Carros (2026c, 2026k); business case, Tabla 5</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
+            <tr><td>Costo de capital de 12 % anual (USD 5,17 por día en un carro de USD 15.715)</td><td>1001 Carros (2026i), ejemplo de costo de inventario de la empresa (5-oct-2026); business case, Tabla 5</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
+            <tr><td>Días en inventario e histórico por modelo; 232 días y 3,2 % de las unidades de más de 120 días</td><td>Base del caso (solo días y estructura; los costos y precios vienen alterados y no se usan como nivel); business case</td><td><span class="tag-fuente empresa">Dato de la empresa</span></td></tr>
             <tr><td>Valor de mercado (referencia)</td><td>Apéndice E de la Entrega 1: mediana por modelo y año de los anuncios de Patiotuerca y Autocor del 7-oct-2026; ajuste de 6 % anual cuando falta el año (reconstruible con DATOS/web/datos_caso/reconstruir_referencias.py)</td><td><span class="tag-fuente empresa">Mercado</span></td></tr>
             <tr><td>Valor de mercado (segunda opinión y respaldo)</td><td>Modelo XGBoost con avisos de Patio Tuerca (1-oct-2026); sustituye a la referencia solo en los modelos que no están en la muestra del Apéndice E</td><td><span class="tag-fuente supuesto">Modelo</span></td></tr>
-            <tr><td>Seguro, espacio en patio y lavado y mantenimiento</td><td>No están en la Entrega 1: valen 0 y solo se activan en Parámetros como análisis de sensibilidad (se proponen 2 % anual, USD 2/día y USD 1/día)</td><td><span class="tag-fuente supuesto">Supuesto</span></td></tr>
+            <tr><td>Ventas 2025 (2.131), crecimiento de ventas (5,92 %), 17,8 % vendidos después de 120 días y 25 % rescatado cada año</td><td>1001 Carros (2026f, 2026g); Supercias (2026a) y BCE (2026); el 25 % es un supuesto del grupo (escenario bajo de la Entrega 1). Modelo financiero, hojas Supuestos y Crecimiento</td><td><span class="tag-fuente supuesto">Supuesto</span></td></tr>
+            <tr><td>Precio de venta de referencia (USD 17.500) y costo de compra de referencia (USD 15.715)</td><td>Business case, Tabla 5 (modelo financiero, hoja Supuestos)</td><td><span class="tag-fuente supuesto">Supuesto</span></td></tr>
+            <tr><td>Seguro, espacio en patio y lavado y mantenimiento</td><td>No están en el business case: valen 0 y solo se activan en Parámetros como análisis de sensibilidad (se proponen 2 % anual, USD 2/día y USD 1/día)</td><td><span class="tag-fuente supuesto">Supuesto</span></td></tr>
           </tbody></table></div>
       </div>
 
       <div class="card">
-        <h3 class="card-tit">5. Lo que no hace todavía</h3>
+        <h3 class="card-tit">6. Lo que no hace todavía</h3>
         <ul class="evid">
           <li>No lee el inventario real: en un piloto se integraría con el CRM de la empresa.</li>
           <li>Usa precios publicados, no precios de cierre de venta.</li>
           <li>No predice la demanda ni cuántos días tardará cada carro en venderse.</li>
-          <li>No decide sola: sugiere un precio y una banda; las excepciones las decide el comité.</li>
+          <li>No decide sola: sugiere un precio y una banda; las excepciones las decide el comité de precios (mensual).</li>
         </ul>
       </div>
 
       <div class="card">
-        <h3 class="card-tit">6. Registro de versiones</h3>
+        <h3 class="card-tit">7. Registro de versiones</h3>
         <div class="tabla-wrap"><table class="tabla compacta">
           <thead><tr><th>Versión</th><th>Fecha</th><th>Qué trae</th></tr></thead>
           <tbody>
@@ -479,7 +538,8 @@
             <tr><td><b>v2</b></td><td class="nw">03-nov-2026</td><td>Módulo de inventario: costo diario por carro, confianza del mercado, referencia manual y Tablero de objetivos.</td></tr>
             <tr><td><b>v3</b></td><td class="nw">16-nov-2026</td><td>Regla de precio que siempre busca ganar algo, banda de negociación, los dos caminos, curva de mercado por día, gráficos más claros, inventario con datos reales del caso, metas del business case, pruebas con usuarios y esta página.</td></tr>
             <tr><td><b>v4</b></td><td class="nw">17-nov-2026</td><td>Solo inventario: se quita la calculadora de precio de toma. La referencia de mercado es la del Apéndice E de la Entrega 1 (el modelo pasa a segunda opinión y respaldo) y el costo de esperar es solo el capital al 12 % anual, con seguro, patio y lavado como análisis de sensibilidad. Todos los números coinciden con la Entrega 1.</td></tr>
-            <tr><td><b>v5</b></td><td class="nw">18-nov-2026</td><td>Calculadora de precio de inventario como primera pestaña (un carro y sus días parados → rango de precio, margen, escalera por tramo, dos caminos, pasos del razonamiento, histórico del modelo, segunda opinión y gráfico), con acciones sobre la unidad; el detalle de unidad pasa a ser la Calculadora. Beneficio de USD 1.932 por unidad y Tabla 3 de la Entrega 1 (USD 183.540 · 367.080 · 548.688). Los avisos parecidos del Corolla ya no incluyen el Corolla Cross.</td></tr>
+            <tr><td><b>v5</b></td><td class="nw">18-nov-2026</td><td>Calculadora de precio de inventario como primera pestaña (un carro y sus días parados → rango de precio, margen, escalera por tramo, dos caminos, pasos del razonamiento, histórico del modelo, segunda opinión y gráfico), con acciones sobre la unidad; el detalle de unidad pasa a ser la Calculadora. Beneficio de USD 1.932 por unidad y Tabla 3 de la Entrega 1 (USD 183.540 · 367.080 · 548.688; reemplazados en la v6). Los avisos parecidos del Corolla ya no incluyen el Corolla Cross.</td></tr>
+            <tr><td><b>v6</b></td><td class="nw">19-nov-2026</td><td>Objetivos nuevos de la tesis y business case actualizado: metas a 12 meses (69 días, 13,4 %, margen bruto mínimo de 8 %, 100 % de precios con regla a 6 meses), beneficio de USD 1.290 por unidad rescatada, USD 129.574 de beneficio y USD 581.662 de capital liberado, calculados con los supuestos de Parámetros; Tablero en tres grupos, uno por objetivo; comité de precios mensual y revisión semanal del jefe de pricing.</td></tr>
           </tbody></table></div>
       </div>
     </section>

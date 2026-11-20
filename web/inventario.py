@@ -35,8 +35,8 @@ COSTOS_INFO = dict(
 )
 
 PARAMS_DEF = dict(
-    # Costo de esperar = solo el costo de capital (Entrega 1): 12 % × (compra + reacondicionamiento) ÷ 365.
-    # Seguro, patio y lavado NO están en la Entrega 1: quedan en 0 y solo cuentan si se activa el interruptor
+    # Costo de esperar = solo el costo de capital (business case): 12 % × (compra + reacondicionamiento) ÷ 365.
+    # Seguro, patio y lavado NO están en el business case: quedan en 0 y solo cuentan si se activa el interruptor
     # (análisis de sensibilidad).
     tasa_capital_anual=0.12,        # costo del capital inmovilizado (dato de la empresa)
     costos_adicionales=False,       # interruptor: ¿contar seguro, patio y lavado?
@@ -54,25 +54,32 @@ PARAMS_DEF = dict(
     stock_umbrales=[3, 5],          # unidades en piso de la misma familia desde las que baja el margen objetivo
     stock_ajustes=[0.01, 0.02],     # cuánto baja (1 y 2 puntos)
     banda_negociacion=0.03,         # mínimo y máximo alrededor del precio objetivo
-    dias_espera=232,                # "camino 2": promedio de días de las unidades que pasan de 120 (Entregable 1)
-    margen_espera=0.032,            # margen con que se venden esas unidades (Entregable 1)
+    dias_espera=232,                # "camino 2": promedio de días de las unidades que pasan de 120 (business case)
+    margen_espera=0.032,            # margen con que se venden esas unidades (business case)
     tolerancia_banda=0.03,          # holgura alrededor de [bajo50, alto50]
     tolerancia_excepcion=0.03,      # solo para cambios anteriores a la v3 (sin banda guardada)
-    # objetivos del caso (Tablero de objetivos)
-    # metas del business case: línea base, meta 2028 (la que se vigila hoy) y meta 2029
-    base_dias_promedio=75, meta_dias_2028=68, meta_dias_2029=61,           # días promedio en inventario
-    meta_dias_empresa=65,                                                  # referencia: meta de la empresa
-    base_pct_mas_120=0.178, meta_pct_mas_120_2028=0.133, meta_pct_mas_120_2029=0.089,   # % de unidades con más de 120 días
-    meta_pct_en_regla_2028=0.90, meta_pct_en_regla_2029=1.0,               # % de cambios de precio dentro de la regla
-    meta_beneficio_2028=183540.0, meta_beneficio_2029=367080.0,            # USD al año (2028: comprometido)
-    # business case de la Entrega 1 (sección 3.2 y Tabla 3): beneficio por unidad que deja de superar 120 días
-    margen_61_90=0.096,             # margen de una unidad vendida entre los días 61 y 90 (después de 120 días: margen_espera, 3,2 %)
-    precio_referencia=17500.0,      # precio de referencia sobre el que se calcula el margen recuperado
-    costo_referencia=15715.0,       # costo de compra de referencia (12 % ÷ 365 = USD 5,17 por día)
-    ventas_mas_120_anuales=379.0,   # unidades al año que superan 120 días (deducido de la Tabla 3: 25 % = 95, 50 % = 190, 75 % = 284)
+    # objetivos de la tesis (v6, Business_Case_Solucion_y_Financiero.docx): línea base y meta a 12 meses
+    base_dias_promedio=75, meta_dias=69,                       # objetivo 1: días promedio en inventario de la línea 1001
+    base_pct_mas_120=0.178, meta_pct_mas_120=0.134,            # objetivo 1: % de seminuevos vendidos después de 120 días
+    margen_bruto_minimo=0.08,                                  # objetivo 1 (control): margen bruto promedio de los seminuevos no menor a 8 %
+    base_pct_en_regla=0.0, meta_pct_en_regla=1.0,              # objetivo 2: % de precios ajustados con la regla (100 % a 6 meses)
+    dia_comite_mes=5,                                          # objetivo 2: día del mes en que sesiona el comité de precios (mensual)
+    # supuestos del business case (Tablas 3 y 5 y Proyección_1001carros_objetivos_actualizados.xlsx). Las metas de beneficio
+    # y de capital liberado NO se escriben a mano: se calculan con estos supuestos (ver business_case).
+    ventas_2025=2131.0,                                        # seminuevos vendidos en 2025
+    crecimiento_ventas=0.05921317112831806,                    # 5,92 % anual (valor exacto del Excel: promedio de industria, PIB y PIB de comercio)
+    proporcion_rescatada=0.25,                                 # de las unidades que pasan de 120 días se rescata el 25 % cada año
+    margen_61_90=0.096, margen_91_120=0.056,                   # margen de una unidad vendida entre los días 61–90 y 91–120
+    mezcla_61_90=0.25, dia_venta_91_120=105,                   # de las rescatadas, 25 % se vende entre 61–90 (día = días promedio) y 75 % entre 91–120 (día 105)
+    precio_referencia=17500.0,                                 # precio de venta de referencia de un seminuevo
+    costo_referencia=15715.0,                                  # costo de compra de referencia (12 % ÷ 365 = USD 5,17 por día)
+    anio_referencia=5,                                         # año de la referencia informativa (5 = 2030)
 )
 VENTANA_OBJETIVOS = 90      # días hacia atrás que miran los objetivos
-# Valores que se sugieren al activar los costos adicionales (supuestos de la v3; no están en la Entrega 1)
+LEGADO = ("meta_dias_2028", "meta_dias_2029", "meta_dias_empresa", "meta_pct_mas_120_2028", "meta_pct_mas_120_2029",
+          "meta_pct_en_regla_2028", "meta_pct_en_regla_2029", "meta_beneficio_2028", "meta_beneficio_2029",
+          "ventas_mas_120_anuales")        # parámetros de la v5 (metas 2028/2029): ya no existen; al guardarlos se descartan
+# Valores que se sugieren al activar los costos adicionales (supuestos de la v3; no están en el business case)
 ADICIONALES_SENSIBILIDAD = dict(tasa_seguro_anual=0.02, costo_espacio_diario=2.0, costo_lavado_diario=1.0)
 
 
@@ -105,7 +112,7 @@ def validar_parametros(q):
     # Parámetros guardados con la versión anterior: costo_capital_diario y costo_operativo_diario ya no existen
     # (se ignoran) y una tasa de capital vacía vuelve al valor por defecto; el costo ahora se calcula por unidad.
     q = {k: v for k, v in (q or {}).items() if k in PARAMS_DEF and not (k == "tasa_capital_anual" and v in (None, ""))}
-    if "costos_adicionales" not in q:       # parámetros guardados antes de la v4: seguro, patio y lavado vuelven a 0 (Entrega 1)
+    if "costos_adicionales" not in q:       # parámetros guardados antes de la v4: seguro, patio y lavado vuelven a 0 (business case)
         for k in ("tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario"):
             q.pop(k, None)
     p = {**PARAMS_DEF, **q}
@@ -113,16 +120,16 @@ def validar_parametros(q):
     try:
         for k in ["tasa_capital_anual", "tasa_seguro_anual", "costo_espacio_diario", "costo_lavado_diario", "margen_minimo",
                   "banda_negociacion", "margen_espera",
-                  "tolerancia_banda", "tolerancia_excepcion", "base_dias_promedio", "meta_dias_2028", "meta_dias_2029",
-                  "meta_dias_empresa", "base_pct_mas_120", "meta_pct_mas_120_2028", "meta_pct_mas_120_2029",
-                  "meta_pct_en_regla_2028", "meta_pct_en_regla_2029", "meta_beneficio_2028", "meta_beneficio_2029",
-                  "margen_61_90", "precio_referencia", "costo_referencia", "ventas_mas_120_anuales"]:
+                  "tolerancia_banda", "tolerancia_excepcion", "base_dias_promedio", "meta_dias", "base_pct_mas_120",
+                  "meta_pct_mas_120", "margen_bruto_minimo", "base_pct_en_regla", "meta_pct_en_regla", "ventas_2025",
+                  "crecimiento_ventas", "proporcion_rescatada", "margen_61_90", "margen_91_120", "mezcla_61_90",
+                  "dia_venta_91_120", "precio_referencia", "costo_referencia", "anio_referencia"]:
             p[k] = float(p[k])
             if p[k] < 0:
                 raise ValueError
-        for k in ["tasa_capital_anual", "tasa_seguro_anual", "base_pct_mas_120", "meta_pct_mas_120_2028",
-                  "meta_pct_mas_120_2029", "meta_pct_en_regla_2028", "meta_pct_en_regla_2029",
-                  "margen_minimo", "banda_negociacion", "margen_espera", "margen_61_90"]:
+        for k in ["tasa_capital_anual", "tasa_seguro_anual", "base_pct_mas_120", "meta_pct_mas_120", "margen_bruto_minimo",
+                  "base_pct_en_regla", "meta_pct_en_regla", "proporcion_rescatada", "mezcla_61_90",
+                  "margen_minimo", "banda_negociacion", "margen_espera", "margen_61_90", "margen_91_120"]:
             if p[k] > 1:
                 raise ValueError(f"{k.replace('_', ' ').capitalize()} debe ir como porcentaje entre 0 y 100")
         f = {**PARAMS_DEF["fuentes"], **(p.get("fuentes") or {})}
@@ -134,6 +141,8 @@ def validar_parametros(q):
         p["stock_umbrales"] = [int(x) for x in p["stock_umbrales"]]
         p["stock_ajustes"] = [float(x) for x in p["stock_ajustes"]]
         p["dias_espera"] = int(p["dias_espera"])
+        p["dia_comite_mes"] = int(p["dia_comite_mes"])
+        p["anio_referencia"] = int(p["anio_referencia"])
     except (TypeError, ValueError) as e:
         raise ValueError(str(e) if str(e).endswith("100") else "Los parámetros deben ser números válidos (no negativos)")
     if len(p["tramos"]) != 4 or p["tramos"] != sorted(set(p["tramos"])) or p["tramos"][0] < 1:
@@ -147,6 +156,10 @@ def validar_parametros(q):
         raise ValueError("El ajuste por stock necesita 2 cantidades crecientes (desde 2) y 2 porcentajes")
     if p["dias_espera"] <= p["tramos"][3]:
         raise ValueError("Los días del camino de espera deben ser más que el último tramo")
+    if not 1 <= p["dia_comite_mes"] <= 28:
+        raise ValueError("El día del comité de precios debe estar entre 1 y 28")
+    if p["dia_venta_91_120"] <= p["tramos"][2] or p["dia_venta_91_120"] > p["tramos"][3]:
+        raise ValueError("El día de venta de las rescatadas del tramo 91–120 debe caer entre 91 y 120")
     if p["dias_revision"] < 1:
         raise ValueError("Los días de revisión deben ser al menos 1")
     return p
@@ -179,7 +192,7 @@ def _componentes_auto(u, p):
     """Costo diario de cada componente según los parámetros: depende del valor de cada carro."""
     base = _base_costo(u)
     on = bool(p.get("costos_adicionales"))        # seguro, patio y lavado solo cuentan con el interruptor activado
-    # el costo diario se redondea a centavos, como en la Entrega 1 (USD 5,17 por día, no 5,1666…)
+    # el costo diario se redondea a centavos, como en el business case (USD 5,17 por día, no 5,1666…)
     return dict(capital=round(base * p["tasa_capital_anual"] / 365, 2),
                 seguro=round(base * p["tasa_seguro_anual"] / 365, 2) if on else 0.0,
                 espacio=p["costo_espacio_diario"] if on else 0.0, lavado=p["costo_lavado_diario"] if on else 0.0)
@@ -208,7 +221,7 @@ def desglose_costo(u, p, dias=0):
     for k in COMPONENTES:
         manual = u.get(f"costo_{k}_manual")
         par = PARAM_DE[k]
-        if k != "capital" and manual is None and not auto[k]:      # en 0 (Entrega 1) no aparecen en el desglose
+        if k != "capital" and manual is None and not auto[k]:      # en 0 (business case) no aparecen en el desglose
             continue
         if k in ("capital", "seguro"):
             formula = f"{pct_txt(p[par])} × {de_que} ÷ 365 = {usd2(auto[k])}/día"
@@ -357,7 +370,7 @@ def texto_confianza_apendice(r):
 
 
 def curva_apendice(modelo, p):
-    """mercado(d) = referencia × 0,94^(d/365) (la misma depreciación de 6 % anual de la Entrega 1). El rango probable
+    """mercado(d) = referencia × 0,94^(d/365) (la misma depreciación de 6 % anual del Apéndice E). El rango probable
     conserva la proporción que da el modelo ese día; el valor del modelo queda en 'modelo' como segunda opinión."""
     out = []
     for c in modelo:
@@ -415,7 +428,7 @@ ESTADOS_TRAMO = [("verde", "Normal"), ("verde", "Normal"), ("amarillo", "Ventana
 ACCIONES_TRAMO = ["Precio de lanzamiento. Publicar y medir visitas y leads.",
                   "Primer ajuste. Revisar fotos, descripción y posición en la web.",
                   "Ventana objetivo. Ajustar el precio hoy y destacar la unidad.",
-                  "Llevar al comité de esta semana antes de cruzar los 120 días.",
+                  "Llevar al comité de precios antes de cruzar los 120 días.",
                   "Vender con el piso de ganancia; evaluar traslado de agencia o canal alterno."]
 
 
@@ -746,52 +759,94 @@ def indicadores_comite(filas, p):
         n_mas_120=len(viejas), costo_acumulado_mas_120=sum(f["e"]["costo_acumulado"] for f in viejas))
 
 
-def beneficio_referencia(p):
-    """Beneficio por unidad del business case (Entrega 1, sección 3.2): una unidad vendida entre los días 61 y 90 deja 9,6 % y
-    después de 120 días 3,2 %; esos 6,4 % sobre el precio de referencia de USD 17.500 son USD 1.120 de margen recuperado.
-    El capital evitado es USD 15.715 × 12 % ÷ 365 = USD 5,17 por día × 157 días (232 − 75) = USD 812. Total USD 1.932."""
-    margen_pct = p["margen_61_90"] - p["margen_espera"]
+def business_case(p, anio=1):
+    """Cifras del business case (Tablas 3 y 5 del documento y hoja Flujo del Excel). anio 1 = 2026 ... 5 = 2030.
+    Redondea por unidad (USD 595 y USD 695) antes de multiplicar por las unidades rescatadas, igual que el Excel:
+        unidades rescatadas = ventas 2025 × (1 + g)^año × 17,8 % × 25 %                         (año 1: 100,445)
+        margen de una rescatada = 25 % × 9,6 % + 75 % × 5,6 % = 6,6 %
+        margen recuperado por unidad = (6,6 % − 3,2 %) × USD 17.500 = USD 595
+        días evitados = 232 − (25 % × 75 + 75 % × 105) = 134,5
+        capital evitado por unidad = USD 5,17 × 134,5 = USD 695
+        beneficio por unidad rescatada = 595 + 695 = USD 1.290
+        capital liberado = unidades rescatadas × USD 15.715 × 134,5 ÷ 365"""
+    ventas = p["ventas_2025"] * (1 + p["crecimiento_ventas"]) ** anio
+    en_riesgo = ventas * p["base_pct_mas_120"]
+    rescatadas = en_riesgo * p["proporcion_rescatada"]
+    mezcla = p["mezcla_61_90"]
+    margen_rescatada = mezcla * p["margen_61_90"] + (1 - mezcla) * p["margen_91_120"]
+    margen_unidad = round((margen_rescatada - p["margen_espera"]) * p["precio_referencia"])
+    dia_venta = mezcla * p["base_dias_promedio"] + (1 - mezcla) * p["dia_venta_91_120"]
+    dias_evitados = p["dias_espera"] - dia_venta
     diario = round(p["costo_referencia"] * p["tasa_capital_anual"] / 365, 2)
-    dias = p["dias_espera"] - p["base_dias_promedio"]
-    margen_usd, capital = margen_pct * p["precio_referencia"], diario * dias
-    return dict(margen_pct=margen_pct, margen_usd=margen_usd, costo_diario=diario, dias_evitados=dias, capital_evitado=capital,
-                total=margen_usd + capital)
-
-
-def escenarios_beneficio(p, porcentajes=(0.25, 0.5, 0.75)):
-    """Tabla 3 de la Entrega 1: beneficio anual si dejan de superar 120 días el 25 %, 50 % o 75 % de las unidades."""
-    b = beneficio_referencia(p)
-    margen, capital = round(b["margen_usd"]), round(b["capital_evitado"])
-    out = []
-    for pc in porcentajes:
-        n = int(p["ventas_mas_120_anuales"] * pc + 0.5)
-        out.append(dict(pct=pc, unidades=n, margen=n * margen, capital=n * capital, total=n * (margen + capital)))
-    return out
+    capital_unidad = round(diario * dias_evitados)
+    margen_recuperado, capital_evitado = rescatadas * margen_unidad, rescatadas * capital_unidad
+    return dict(anio=anio, ventas=ventas, en_riesgo=en_riesgo, rescatadas=rescatadas, margen_rescatada=margen_rescatada,
+                margen_unidad=margen_unidad, dia_venta=dia_venta, dias_evitados=dias_evitados, costo_diario=diario,
+                capital_unidad=capital_unidad, beneficio_unidad=margen_unidad + capital_unidad,
+                margen_recuperado=margen_recuperado, capital_evitado=capital_evitado,
+                beneficio=margen_recuperado + capital_evitado,
+                capital_liberado=rescatadas * p["costo_referencia"] * dias_evitados / 365,
+                dias_resultantes=p["base_dias_promedio"] - rescatadas * dias_evitados / ventas,
+                pct_mas_120_resultante=(en_riesgo - rescatadas) / ventas)
 
 
 def texto_business_case(p):
-    b, e = beneficio_referencia(p), {x["pct"]: x for x in escenarios_beneficio(p)}
-    return (f"Entrega 1: {usd(round(b['margen_usd']) + round(b['capital_evitado']))} por unidad (margen recuperado {usd(b['margen_usd'])} "
-            f"+ capital evitado {usd(b['capital_evitado'])}). Si dejan de superar 120 días el 25 % de las unidades ({e[0.25]['unidades']}): "
-            f"{usd(e[0.25]['total'])} al año; el 50 % ({e[0.5]['unidades']}): {usd(e[0.5]['total'])}.")
+    b = business_case(p)
+    return (f"Business case: {usd(b['beneficio_unidad'])} por unidad rescatada ({usd(b['margen_unidad'])} de margen recuperado + "
+            f"{usd(b['capital_unidad'])} de capital evitado) × {b['rescatadas']:.0f} unidades rescatadas en el año 1 = {usd(b['beneficio'])}.")
+
+
+def es_rescatada(d, p):
+    """Una unidad rescatada es la que se vende entre los días 61 y 120: el business case la cuenta como una de las que dejan
+    de pasar de 120 días."""
+    return p["tramos"][1] < d <= p["tramos"][3]
 
 
 def beneficio_venta(u, p):
-    """Beneficio de una unidad realmente vendida antes del límite de antigüedad (tramos[3], 120 días), con la misma estructura
-    del business case de la Entrega 1 (ver beneficio_referencia):
+    """Beneficio de una unidad realmente vendida como rescatada (entre los días 61 y 120), con la estructura del business case
+    (ver business_case):
         margen recuperado = (precio de venta − costo de compra y reacondicionamiento) − costo × margen que deja esperar (3,2 %)
-        capital evitado   = costo diario × (días de espera − días en piso)          (232 días en la Entrega 1)
+        capital evitado   = costo diario × (días de espera − días en piso)          (232 días)
         beneficio         = margen recuperado + capital evitado
-    Con el carro de referencia (USD 15.715, día 75) el capital evitado es 5,17 × (232 − 75) = USD 812; el estándar de la
-    Entrega 1 (USD 1.120 + USD 812 = USD 1.932 por unidad) está en beneficio_referencia.
-    Las vendidas pasado el límite no suman. Devuelve None si no cuenta."""
+    El estándar del business case (USD 595 + USD 695 = USD 1.290 por unidad rescatada) está en business_case. Las vendidas antes del
+    día 61 o después del 120 no suman. Devuelve None si no cuenta."""
     d = dias_en_piso(u)
-    if d > p["tramos"][3] or u.get("precio_venta") is None:
+    if not es_rescatada(d, p) or u.get("precio_venta") is None:
         return None
     base = _base_costo(u)
     margen = (u["precio_venta"] - base) - base * p["margen_espera"]
     evitado = max(p["dias_espera"] - d, 0) * costo_diario(u, p)
-    return dict(dias=d, margen=margen, capital_evitado=evitado, total=margen + evitado)
+    capital_liberado = base * max(p["dias_espera"] - d, 0) / 365
+    return dict(dias=d, margen=margen, capital_evitado=evitado, total=margen + evitado, capital_liberado=capital_liberado)
+
+
+def margen_bruto(unidades):
+    """Margen bruto de las unidades vendidas como en la Tabla 3: (precio de venta − costo) ÷ precio de venta, sobre el conjunto
+    (suma de ventas y de costos). None si no hay ventas."""
+    ventas = sum(u["precio_venta"] for u in unidades if u.get("precio_venta"))
+    costos = sum(_base_costo(u) for u in unidades if u.get("precio_venta"))
+    return (ventas - costos) / ventas if ventas else None
+
+
+def proximo_comite(p, hoy=None):
+    """Fecha del próximo comité de precios (mensual): el día dia_comite_mes de este mes o del siguiente."""
+    hoy = _fecha(hoy or date.today())
+    y, m = hoy.year, hoy.month
+    if hoy.day > p["dia_comite_mes"]:
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return date(y, m, p["dia_comite_mes"])
+
+
+def pasaron_dia_90_en_el_mes(en_piso, p, hoy=None):
+    """Unidades en piso que cruzaron el día 90 durante el mes en curso (van al comité de precios del mes)."""
+    hoy = _fecha(hoy or date.today())
+    ini = hoy.replace(day=1)
+    out = []
+    for u in en_piso:
+        cruce = _fecha(u["fecha_ingreso"]) + timedelta(days=p["tramos"][2] + 1)
+        if ini <= cruce <= hoy:
+            out.append((u, cruce))
+    return out
 
 
 def _avance(valor, base, meta, menos_es_mejor):
@@ -800,6 +855,8 @@ def _avance(valor, base, meta, menos_es_mejor):
         return None
     if menos_es_mejor:
         return 1.0 if valor <= meta else max((base - valor) / (base - meta), 0.0) if base > meta else 0.0
+    if base is not None and meta > base:
+        return min(max((valor - base) / (meta - base), 0.0), 9.99)
     return min(valor / meta, 9.99) if meta else 1.0
 
 
@@ -808,52 +865,99 @@ def estado_avance(a):
     return None if a is None else "ok" if a >= 1 else "cerca" if a >= 0.5 else "lejos"
 
 
-def _meta(clave, nombre, formato, valor, base, p, k28, k29, menos_es_mejor, detalle, **extra):
-    """Tarjeta de un objetivo: valor actual, línea base, meta 2028 (con la que se mide el avance) y meta 2029."""
-    m28, m29 = p[k28], p[k29]
-    a = _avance(valor, base, m28, menos_es_mejor)
-    return dict(clave=clave, nombre=nombre, formato=formato, valor=valor, base=base, meta=m28, meta2029=m29,
-                avance=a, estado=estado_avance(a), menos_es_mejor=menos_es_mejor, detalle=detalle, **extra)
+def _meta(clave, nombre, grupo, formato, valor, base, meta, menos_es_mejor, detalle, control=False, **extra):
+    """Tarjeta de un objetivo: valor actual, línea base, meta a 12 meses y avance. Un control (margen bruto mínimo) solo cumple
+    o no cumple: verde si valor ≥ meta, rojo si es menor."""
+    a = None if valor is None else (1.0 if valor >= meta else 0.0) if control else _avance(valor, base, meta, menos_es_mejor)
+    return dict(clave=clave, nombre=nombre, grupo=grupo, formato=formato, valor=valor, base=base, meta=meta, avance=a,
+                estado=estado_avance(a), menos_es_mejor=menos_es_mejor, control=control, detalle=detalle, **extra)
+
+
+# Los tres objetivos específicos de la tesis, textuales (Business_Case_Solucion_y_Financiero.docx), con su resumen para el Tablero
+OBJETIVOS = [
+    dict(grupo=1, titulo="Rotación con margen", plazo="12 meses",
+         texto="Reducir el promedio de días en inventario de la línea 1001 (seminuevos) de 75 a 69 días y la proporción de seminuevos "
+               "vendidos después de 120 días de 17,8 % a 13,4 %, en 12 meses, manteniendo un margen bruto promedio de los seminuevos "
+               "no menor al 8 %."),
+    dict(grupo=2, titulo="Precios con reglas", plazo="6 meses",
+         texto="Lograr que, en 6 meses, el 100 % de los precios de venta de usados se ajuste en el CRM mediante reglas por días en piso y "
+               "referencia de mercado, revisadas por un comité de precios mensual, en lugar de depender de una o dos personas."),
+    dict(grupo=3, titulo="Beneficio y capital", plazo="12 meses",
+         texto="Generar en 12 meses un beneficio de USD 0,13 millones al año, sumando el margen que hoy se pierde al vender los "
+               "seminuevos después de 120 días (USD 59.765) y el costo de tener el dinero invertido en carros que no se venden "
+               "(USD 69.809), y liberar USD 0,58 millones que hoy están inmovilizados en ese inventario."),
+]
 
 
 def objetivos(en_piso, vendidas, cambios, p, hoy=None, ventana=VENTANA_OBJETIVOS):
-    """Las cuatro metas del business case. en_piso: [{'u','e'}]; vendidas: unidades vendidas (cualquier fecha);
-    cambios: cambios de precio de la ventana [{'precio_nuevo','precio_sugerido','precio_minimo','precio_maximo','aprobado'}].
-    Cada tarjeta trae línea base, meta 2028 y meta 2029; el avance se mide contra la meta 2028."""
+    """Los siete indicadores de los tres objetivos específicos de la tesis (business case):
+    1 Rotación con margen: días promedio, % vendidos después de 120 días, margen bruto (control ≥ 8 %) y margen de las rescatadas;
+    2 Precios con reglas: % de precios ajustados con la regla;
+    3 Beneficio y capital: beneficio anual (margen recuperado + capital evitado) y capital liberado.
+    en_piso: [{'u','e'}]; vendidas: unidades vendidas (cualquier fecha); cambios: cambios de precio de la ventana
+    [{'precio_nuevo','precio_sugerido','precio_minimo','precio_maximo','aprobado'}]. Valores de la demo: sobre las ventas de los
+    últimos `ventana` días (el beneficio y el capital se llevan a un año)."""
     hoy = _fecha(hoy or date.today())
     desde = hoy - timedelta(days=ventana)
     recientes = [u for u in vendidas if u.get("fecha_venta") and _fecha(u["fecha_venta"]) >= desde]
     n_piso = len(en_piso)
+    bc = business_case(p)
     out = []
+    lim = p["tramos"][3]
 
+    # --- objetivo 1: rotación con margen
     d_ven = [dias_en_piso(u) for u in recientes]
     d_piso = [f["e"]["dias"] for f in en_piso]
     v = (sum(d_ven) / len(d_ven)) if d_ven else None
-    out.append(_meta("dias", "Días promedio en inventario", "dias", v, p["base_dias_promedio"], p, "meta_dias_2028", "meta_dias_2029", True,
+    out.append(_meta("dias", "Días promedio en inventario", 1, "dias", v, p["base_dias_promedio"], p["meta_dias"], True,
                      (f"{len(d_ven)} vendidas en los últimos {ventana} días" if d_ven else f"Sin ventas en los últimos {ventana} días")
-                     + (f" · en inventario hoy: {sum(d_piso) / n_piso:.0f} d" if n_piso else ""), meta_empresa=p["meta_dias_empresa"]))
+                     + (f" · en inventario hoy: {sum(d_piso) / n_piso:.0f} d" if n_piso else "")))
 
-    viejas = sum(x > p["tramos"][3] for x in d_piso)
-    v = (viejas / n_piso) if n_piso else None
-    out.append(_meta("mas120", f"Unidades con más de {p['tramos'][3]} días", "pct", v, p["base_pct_mas_120"], p,
-                     "meta_pct_mas_120_2028", "meta_pct_mas_120_2029", True, f"{viejas} de {n_piso} unidades en inventario"))
+    viejas_ven = sum(x > lim for x in d_ven)
+    viejas_piso = sum(x > lim for x in d_piso)
+    v = (viejas_ven / len(d_ven)) if d_ven else None
+    out.append(_meta("mas120", f"Vendidos después de {lim} días", 1, "pct", v, p["base_pct_mas_120"], p["meta_pct_mas_120"], True,
+                     (f"{viejas_ven} de {len(d_ven)} vendidas en los últimos {ventana} días" if d_ven else f"Sin ventas en los últimos {ventana} días")
+                     + (f" · en inventario hoy: {viejas_piso} de {n_piso} ya pasaron de {lim} d" if n_piso else "")))
 
+    con_precio = [u for u in recientes if u.get("precio_venta")]
+    v = margen_bruto(con_precio)
+    out.append(_meta("margen_bruto", "Margen bruto de los seminuevos", 1, "pct", v, None, p["margen_bruto_minimo"], False,
+                     (f"(precio de venta − costo) ÷ precio de venta sobre {len(con_precio)} ventas de los últimos {ventana} días" if con_precio
+                      else f"Sin ventas en los últimos {ventana} días") + " · control: no puede bajar de " + pct_txt(p["margen_bruto_minimo"]),
+                     control=True))
+
+    resc = [u for u in con_precio if es_rescatada(dias_en_piso(u), p)]
+    v = margen_bruto(resc)
+    out.append(_meta("margen_rescatadas", "Margen de las unidades rescatadas", 1, "pct", v, p["margen_espera"], bc["margen_rescatada"], False,
+                     (f"{len(resc)} vendidas entre los días {p['tramos'][1] + 1} y {lim}" if resc
+                      else f"Sin ventas entre los días {p['tramos'][1] + 1} y {lim} en los últimos {ventana} días")
+                     + f" · {pct_txt(p['mezcla_61_90'])} entre 61–90 ({pct_txt(p['margen_61_90'])}) y {pct_txt(1 - p['mezcla_61_90'])} entre 91–120 ({pct_txt(p['margen_91_120'])})"))
+
+    # --- objetivo 2: precios con reglas
     dentro = sum(1 for c in cambios if c.get("precio_sugerido") and
                  (not es_excepcion(c, p["tolerancia_excepcion"]) or c.get("aprobado") == 1))
     v = (dentro / len(cambios)) if cambios else None
-    out.append(_meta("regla", "Cambios de precio dentro de la regla", "pct", v, None, p, "meta_pct_en_regla_2028", "meta_pct_en_regla_2029",
-                     False, (f"{dentro} de {len(cambios)} en los últimos {ventana} días (dentro de la banda mínimo–máximo "
-                             f"o con excepción aprobada)") if cambios else f"Sin cambios de precio en los últimos {ventana} días"))
+    out.append(_meta("regla", "Precios ajustados con la regla", 2, "pct", v, p["base_pct_en_regla"], p["meta_pct_en_regla"], False,
+                     (f"{dentro} de {len(cambios)} cambios de precio de los últimos {ventana} días quedaron dentro de la banda mínimo–máximo "
+                      f"o con excepción aprobada") if cambios else f"Sin cambios de precio en los últimos {ventana} días"))
 
+    # --- objetivo 3: beneficio y capital
     ben = [b for b in (beneficio_venta(u, p) for u in recientes) if b]
+    k = 365 / ventana
     periodo = sum(b["total"] for b in ben)
-    anual = periodo * 365 / ventana
-    out.append(_meta("beneficio", "Beneficio acumulado (margen + capital)", "usd", anual if ben else None, None, p,
-                     "meta_beneficio_2028", "meta_beneficio_2029", False,
-                     (f"{usd(periodo)} en {ventana} días ({len(ben)} ventas antes de {p['tramos'][3]} d) llevados a un año"
-                      if ben else f"Sin ventas antes de {p['tramos'][3]} días en los últimos {ventana} días"),
-                     periodo=periodo, margen=sum(b["margen"] for b in ben), capital_evitado=sum(b["capital_evitado"] for b in ben),
-                     nota=texto_business_case(p)))
+    bc5 = business_case(p, p["anio_referencia"])
+    out.append(_meta("beneficio", "Beneficio anual", 3, "usd", periodo * k if ben else None, 0.0, bc["beneficio"], False,
+                     (f"{usd(periodo)} en {ventana} días ({len(ben)} ventas de unidades rescatadas) llevados a un año"
+                      if ben else f"Sin ventas de unidades rescatadas (días {p['tramos'][1] + 1}–{lim}) en los últimos {ventana} días"),
+                     periodo=periodo, margen=sum(b["margen"] for b in ben) * k, capital_evitado=sum(b["capital_evitado"] for b in ben) * k,
+                     meta_margen=bc["margen_recuperado"], meta_capital=bc["capital_evitado"], nota=texto_business_case(p),
+                     nota_2030=f"En {2025 + bc5['anio']}: {usd(bc5['beneficio'])} de beneficio y {usd(bc5['capital_liberado'])} liberados"))
+    liberado = sum(b["capital_liberado"] for b in ben) * k
+    out.append(_meta("capital", "Capital liberado", 3, "usd", liberado if ben else None, 0.0, bc["capital_liberado"], False,
+                     "unidades rescatadas × costo × (232 − días en piso) ÷ 365, llevado a un año" if ben
+                     else "Sin ventas de unidades rescatadas en los últimos " + str(ventana) + " días",
+                     meta_unidades=bc["rescatadas"]))
     return out
 
 
@@ -863,10 +967,9 @@ PERFILES = ["Asesor de concesionario", "Revendedor de usados", "Vendedor particu
 VENDIBLE = dict(si="Sí", ajuste="Sí, con ajuste", no="No")
 DISPOSITIVOS = ["Celular", "Computadora"]
 HIPOTESIS = [
-    dict(clave="H1", texto="La regla da precios que los evaluadores consideran vendibles en 30 días en al menos 8 de cada 10 carros "
-                           "probados (sí o sí con ajuste).", meta=0.8),
-    dict(clave="H2", texto="Un asesor obtiene el precio sugerido en menos de 60 segundos y sin capacitación (4 de cada 5).", meta=0.8),
-    dict(clave="H3", texto="El semáforo lleva al comité el 100 % de las unidades antes del día 91.", meta=1.0),
+    dict(clave="H1", texto="El precio sugerido es vendible en 30 días en 8 de cada 10 carros probados (cuentan «sí» y «sí, con ajuste»).", meta=0.8),
+    dict(clave="H2", texto="Un asesor obtiene el precio sin capacitación: menos de 60 segundos en 4 de cada 5 pruebas.", meta=0.8),
+    dict(clave="H3", texto="El semáforo lleva al comité las unidades antes del día 91: el 100 % de las unidades que pasan el día 90.", meta=1.0),
 ]
 
 

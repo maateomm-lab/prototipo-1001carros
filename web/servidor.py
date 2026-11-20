@@ -71,7 +71,7 @@ AVISOS = P.limpiar_usados(P.USADOS_DEF)[["marca", "familia", "version", "titulo"
 N_FAMILIA = AVISOS.familia.value_counts().to_dict()
 LOCK = threading.Lock()     # un solo hilo usa XGBoost a la vez
 MAPA_FAMILIAS = CASO.mapa_familias(ART, N_FAMILIA)     # texto de familia del caso -> (marca, familia) del catálogo
-VERSION = "v5 · 18-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
+VERSION = "v6 · 19-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
 
 
 # ----------------------------------------------------------------------------- catálogo
@@ -190,8 +190,8 @@ _CURVAS = {}      # (unidad, día) -> curva de mercado; el mercado de una unidad
 def parametros():
     guardados = BD.parametros_guardados()
     p = INV.validar_parametros(guardados)
-    if guardados and "costos_adicionales" not in guardados:     # migración v4: seguro, patio y lavado vuelven a 0 (Entrega 1)
-        BD.guardar_parametros("migración v4", p)
+    if guardados and ("costos_adicionales" not in guardados or any(k in guardados for k in INV.LEGADO)):
+        BD.guardar_parametros("migración v6", p)     # v4: seguro, patio y lavado vuelven a 0; v6: se descartan las metas 2028/2029
     return p
 
 
@@ -458,7 +458,9 @@ def calcular_precio(q):
         auto = {**auto, "p": float(round(cu[0]["modelo"], -1))}
     hist = INV.texto_historico(CASO.hist_de_familia(familia), CASO.historico().get("linea"), P.nombre_familia(familia))
     margen_usd = e["sugerido"] - e["costo_acumulado"]
-    calc = dict(stock=stock, stock_auto=max(stock_familias().get(familia, 0), 1), referencia_auto=auto,
+    bc = INV.business_case(p)
+    calc = dict(business_case=dict(beneficio_unidad=bc["beneficio_unidad"], margen_unidad=bc["margen_unidad"],
+                                   capital_unidad=bc["capital_unidad"], dias_evitados=bc["dias_evitados"]), stock=stock, stock_auto=max(stock_familias().get(familia, 0), 1), referencia_auto=auto,
                 escalera=INV.escalera(u, cu, p, dias, stock), proxima_revision=INV.proxima_revision(dias, p, hoy),
                 costo_semanal=e["costo_diario"] * 7, historico=hist, pasos=INV.pasos_por_que(e, p),
                 margen_usd=margen_usd, margen_pct=margen_usd / e["costo_acumulado"] if e["costo_acumulado"] else None,
@@ -484,8 +486,9 @@ def lista_inventario(q):
 
 
 def decisiones_semana(en_piso, p, hoy=None):
-    """Lista de trabajo de la reunión semanal: solo las unidades que necesitan una decisión, de la más urgente a la
-    menos urgente (rojo, revisión vencida, confianza baja sin referencia manual, fuera de la banda de mercado)."""
+    """Lista de trabajo de la revisión semanal del jefe de pricing: solo las unidades que necesitan una decisión, de la más
+    urgente a la menos urgente (rojo, revisión vencida, confianza baja sin referencia manual, fuera de la banda de mercado).
+    El comité de precios sesiona una vez al mes (ver tablero)."""
     hoy = hoy or date.today()
     filas = []
     for f in en_piso:
@@ -524,15 +527,29 @@ def tablero():
     en_piso = [dict(u=u, e=evaluar_unidad(u, p, stock=stock)) for u in todas if u["estado"] in ("En piso", "Reservada")]
     vendidas = [u for u in todas if u["estado"] in ("Vendida", "Liquidada")]
     decisiones = decisiones_semana(en_piso, p)
-    hace7 = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
-    # excepciones de la semana + las que siguen sin aprobar (hasta 90 días atrás)
-    excepciones = [r for r in BD.excepciones_precio(p["tolerancia_excepcion"], INV.VENTANA_OBJETIVOS)
-                   if r["fecha"] >= hace7 or r["aprobado"] is None]
     dinero = INV.indicadores_comite(en_piso, p)
-    return dict(objetivos=INV.objetivos(en_piso, vendidas, BD.cambios_precio(INV.VENTANA_OBJETIVOS), p),
-                ventana=INV.VENTANA_OBJETIVOS, decisiones=decisiones, semaforos=dinero["por_semaforo"],
+    # comité de precios MENSUAL: excepciones del mes (y las que siguen sin aprobar) y unidades que cruzaron el día 90 este mes
+    hoy = date.today()
+    mes = hoy.strftime("%Y-%m")
+    proximo = INV.proximo_comite(p, hoy)
+    excepciones = [r for r in BD.excepciones_precio(p["tolerancia_excepcion"], INV.VENTANA_OBJETIVOS)
+                   if r["fecha"][:7] == mes or r["aprobado"] is None]
+    del_mes = [r for r in excepciones if r["fecha"][:7] == mes]
+    por_id = {f["u"]["id"]: f for f in en_piso}
+    pasaron_90 = [dict(id=u["id"], vehiculo=u["vehiculo"], linea=u["linea"], agencia=u["agencia"], dias=por_id[u["id"]]["e"]["dias"],
+                       cruce=cruce.isoformat(), precio_publicado=u["precio_publicado"], sugerido=por_id[u["id"]]["e"]["sugerido"],
+                       semaforo=por_id[u["id"]]["e"]["semaforo"], recomendacion=por_id[u["id"]]["e"]["recomendacion"])
+                  for u, cruce in INV.pasaron_dia_90_en_el_mes([f["u"] for f in en_piso], p, hoy)]
+    pasaron_90.sort(key=lambda x: -x["dias"])
+    objetivos = INV.objetivos(en_piso, vendidas, BD.cambios_precio(INV.VENTANA_OBJETIVOS), p)
+    for o in objetivos:
+        if o["clave"] == "regla":
+            o.update(excepciones_mes=len(del_mes), proximo_comite=proximo.isoformat())
+    return dict(objetivos=objetivos, grupos=INV.OBJETIVOS, ventana=INV.VENTANA_OBJETIVOS, decisiones=decisiones, semaforos=dinero["por_semaforo"],
                 dinero=dinero, tramos=INV.nombres_tramos(p), limite_antiguas=p["tramos"][3],
-                excepciones=excepciones, tolerancia_excepcion=p["tolerancia_excepcion"])
+                excepciones=excepciones, tolerancia_excepcion=p["tolerancia_excepcion"],
+                comite=dict(fecha=proximo.isoformat(), mes=mes, excepciones_mes=len(del_mes), pasaron_90=pasaron_90,
+                            dia_comite=p["dia_comite_mes"]))
 
 
 def pruebas_con_usuarios():
