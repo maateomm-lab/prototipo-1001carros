@@ -71,7 +71,7 @@ AVISOS = P.limpiar_usados(P.USADOS_DEF)[["marca", "familia", "version", "titulo"
 N_FAMILIA = AVISOS.familia.value_counts().to_dict()
 LOCK = threading.Lock()     # un solo hilo usa XGBoost a la vez
 MAPA_FAMILIAS = CASO.mapa_familias(ART, N_FAMILIA)     # texto de familia del caso -> (marca, familia) del catálogo
-VERSION = "v6 · 19-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
+VERSION = "v7 · 20-nov-2026"                           # versión del prototipo (se guarda en cada prueba con usuarios)
 
 
 # ----------------------------------------------------------------------------- catálogo

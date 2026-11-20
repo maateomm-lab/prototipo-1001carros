@@ -567,6 +567,10 @@ function pintarCalc() {
   const c = det.calc, p = det.parametros, esc_ = c.escalera.find(x => x.actual);
   // 1. precio sugerido hoy
   $("#cal-precio").textContent = usdE(e.sugerido);
+  // v7 (pruebas con usuarios): una sola línea con los dos números que el asesor necesita
+  $("#cal-decision").innerHTML = e.minimo === e.maximo
+    ? `Publica y acepta <b>${usdE(e.maximo)}</b> (sin margen para negociar)`
+    : `Publica en <b>${usdE(e.maximo)}</b> y acepta hasta <b>${usdE(e.minimo)}</b>`;
   $("#cal-margen").textContent = `Margen proyectado ${pct1(c.margen_pct)} (${usdE(c.margen_usd)} sobre el costo acumulado).`;
   const pill = $("#cal-pill"); pill.className = "pill " + TRAMO_COLOR[esc_.color]; pill.textContent = `${esc_.estado} · día ${e.dias}`;
   // 2. rango: mínimo · objetivo · máximo

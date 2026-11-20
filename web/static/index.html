@@ -72,7 +72,7 @@
           <select id="i-sem"><option value="">Todos los semáforos</option><option value="verde">Verde</option><option value="amarillo">Amarillo</option><option value="naranja">Naranja</option><option value="rojo">Rojo</option></select>
         </div>
         <div class="tabla-wrap">
-          <table class="tabla ordenable" id="i-tabla">
+          <table class="tabla ordenable col-fija" id="i-tabla">
             <thead><tr>
               <th data-k="sem"></th><th data-k="vehiculo">Vehículo</th><th data-k="linea">Línea / agencia</th>
               <th data-k="dias" class="num">Días</th><th data-k="costo_acumulado" class="num">Costo acum.</th>
@@ -145,6 +145,7 @@
               <div>
                 <p class="k">Precio sugerido hoy</p>
                 <p class="cal-precio" id="cal-precio">–</p>
+                <p class="cal-decision" id="cal-decision">–</p>
                 <p class="cal-margen" id="cal-margen">–</p>
               </div>
               <span class="pill" id="cal-pill">–</span>
@@ -540,6 +541,7 @@
             <tr><td><b>v4</b></td><td class="nw">17-nov-2026</td><td>Solo inventario: se quita la calculadora de precio de toma. La referencia de mercado es la del Apéndice E de la Entrega 1 (el modelo pasa a segunda opinión y respaldo) y el costo de esperar es solo el capital al 12 % anual, con seguro, patio y lavado como análisis de sensibilidad. Todos los números coinciden con la Entrega 1.</td></tr>
             <tr><td><b>v5</b></td><td class="nw">18-nov-2026</td><td>Calculadora de precio de inventario como primera pestaña (un carro y sus días parados → rango de precio, margen, escalera por tramo, dos caminos, pasos del razonamiento, histórico del modelo, segunda opinión y gráfico), con acciones sobre la unidad; el detalle de unidad pasa a ser la Calculadora. Beneficio de USD 1.932 por unidad y Tabla 3 de la Entrega 1 (USD 183.540 · 367.080 · 548.688; reemplazados en la v6). Los avisos parecidos del Corolla ya no incluyen el Corolla Cross.</td></tr>
             <tr><td><b>v6</b></td><td class="nw">19-nov-2026</td><td>Objetivos nuevos de la tesis y business case actualizado: metas a 12 meses (69 días, 13,4 %, margen bruto mínimo de 8 %, 100 % de precios con regla a 6 meses), beneficio de USD 1.290 por unidad rescatada, USD 129.574 de beneficio y USD 581.662 de capital liberado, calculados con los supuestos de Parámetros; Tablero en tres grupos, uno por objetivo; comité de precios mensual y revisión semanal del jefe de pricing.</td></tr>
+            <tr><td><b>v7</b></td><td class="nw">20-nov-2026</td><td>Cambios que salieron de las pruebas con usuarios: debajo del precio sugerido, una línea "Publica en USD X y acepta hasta USD Y" con el máximo y el mínimo de la banda (los evaluadores dijeron que había mucho texto y no sabían con qué número quedarse), y en Inventario la columna del vehículo queda fija al desplazarse a la derecha. No cambia ningún cálculo.</td></tr>
           </tbody></table></div>
       </div>
     </section>
